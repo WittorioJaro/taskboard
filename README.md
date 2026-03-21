@@ -34,6 +34,28 @@ The package manifest targets macOS 15 in [`Package.swift`](./Package.swift).
 swift run taskboard
 ```
 
+### Build An App Bundle
+
+If you want something you can move into `Applications`, build the `.app` bundle:
+
+```bash
+./scripts/build-app.sh
+```
+
+If `Assets/taskboard-logo.png` exists, the build script also converts it into a proper macOS app icon and embeds it into the bundle.
+
+That creates:
+
+```text
+dist/taskboard.app
+```
+
+Then install it with:
+
+```bash
+cp -R dist/taskboard.app /Applications/
+```
+
 ## How It Works
 
 `taskboard` is a small native app with three main surfaces:

@@ -44,10 +44,21 @@ struct TaskBoardApp: App {
 
 final class TaskBoardApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        configureApplicationIcon()
         NSApp.setActivationPolicy(.regular)
         QuickCaptureController.shared.registerHotKey()
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    @MainActor
+    private func configureApplicationIcon() {
+        guard let iconURL = Bundle.main.url(forResource: "taskboard", withExtension: "icns"),
+              let iconImage = NSImage(contentsOf: iconURL) else {
+            return
+        }
+
+        NSApp.applicationIconImage = iconImage
     }
 }

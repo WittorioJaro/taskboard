@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MainWindowView: View {
     @Bindable var store: TaskBoardStore
@@ -8,6 +9,7 @@ struct MainWindowView: View {
 
     @State private var showingCreateBoardSheet = false
     @State private var quickTaskTitle = ""
+    @State private var draggedBoardID: TaskBoard.ID?
     @AppStorage("boardColumnCount") private var boardColumnCount = 3
     @FocusState private var isQuickEntryFocused: Bool
 
@@ -41,7 +43,11 @@ struct MainWindowView: View {
                 ScrollView {
                     LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 18) {
                         ForEach(store.boards) { board in
-                            BoardColumnView(store: store, boardID: board.id)
+                            BoardColumnView(
+                                store: store,
+                                boardID: board.id,
+                                draggedBoardID: $draggedBoardID
+                            )
                         }
                     }
                     .animation(.spring(response: 0.32, dampingFraction: 0.9), value: store.boards)
@@ -224,9 +230,12 @@ private struct QuickEntryBar: View {
 private struct BoardColumnView: View {
     @Bindable var store: TaskBoardStore
     let boardID: TaskBoard.ID
+    @Binding var draggedBoardID: TaskBoard.ID?
 
     @State private var inlineTaskTitle = ""
     @State private var isAddingInlineTask = false
+    @State private var draggedTaskID: TaskItem.ID?
+    @State private var showingDeleteConfirmation = false
     @FocusState private var isInlineTaskFocused: Bool
 
     private var board: TaskBoard? {
@@ -270,7 +279,7 @@ private struct BoardColumnView: View {
                         .background(board.theme.accentColor.opacity(0.12), in: Capsule())
 
                     Button(role: .destructive) {
-                        store.deleteBoard(id: board.id)
+                        showingDeleteConfirmation = true
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 11, weight: .bold))
@@ -309,7 +318,24 @@ private struct BoardColumnView: View {
                                     onDone: {
                                         store.selectedBoardID = board.id
                                         store.markTaskDone(taskID: task.id, in: board.id)
+                                    },
+                                    onRename: { newTitle in
+                                        store.selectedBoardID = board.id
+                                        store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                    },
+                                    onDragStart: {
+                                        draggedTaskID = task.id
+                                        store.selectedBoardID = board.id
                                     }
+                                )
+                                .onDrop(
+                                    of: [UTType.text],
+                                    delegate: TaskReorderDropDelegate(
+                                        store: store,
+                                        boardID: board.id,
+                                        targetTaskID: task.id,
+                                        draggedTaskID: $draggedTaskID
+                                    )
                                 )
                                 .transition(.opacity.combined(with: .move(edge: .top)))
 
@@ -355,6 +381,31 @@ private struct BoardColumnView: View {
             .shadow(color: .black.opacity(0.22), radius: 26, x: 0, y: 18)
             .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.isExpanded)
             .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.openTasks)
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .onDrag {
+                draggedBoardID = board.id
+                store.selectedBoardID = board.id
+                return NSItemProvider(object: board.id.uuidString as NSString)
+            } preview: {
+                DragPreview()
+            }
+            .onDrop(
+                of: [UTType.text],
+                delegate: BoardReorderDropDelegate(
+                    store: store,
+                    targetBoardID: board.id,
+                    draggedBoardID: $draggedBoardID
+                )
+            )
+            .alert("Delete board?", isPresented: $showingDeleteConfirmation) {
+                Button("Delete", role: .destructive) {
+                    store.deleteBoard(id: board.id)
+                }
+
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently remove \"\(board.title)\" and every task inside it.")
+            }
             .onChange(of: isInlineTaskFocused) { _, isFocused in
                 if !isFocused && inlineTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     isAddingInlineTask = false
@@ -479,6 +530,12 @@ private struct MinimalTaskRow: View {
     let isCopied: Bool
     let onCopy: () -> Void
     let onDone: () -> Void
+    let onRename: (String) -> Void
+    let onDragStart: () -> Void
+
+    @State private var draftTitle = ""
+    @State private var isEditingTitle = false
+    @FocusState private var isTitleFocused: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -490,17 +547,28 @@ private struct MinimalTaskRow: View {
             .buttonStyle(.plain)
             .help("Mark done")
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(task.title)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-
-                Text(task.createdAt.formatted(.relative(presentation: .named)))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.34))
+            Group {
+                if isEditingTitle {
+                    TextField("Task title", text: $draftTitle)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.96))
+                        .focused($isTitleFocused)
+                        .onSubmit(commitTitleEdit)
+                        .onExitCommand(perform: cancelTitleEdit)
+                } else {
+                    Button(action: beginTitleEdit) {
+                        Text(task.title)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer(minLength: 10)
 
@@ -519,6 +587,113 @@ private struct MinimalTaskRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .onDrag {
+            onDragStart()
+            return NSItemProvider(object: task.id.uuidString as NSString)
+        } preview: {
+            DragPreview()
+        }
+        .onAppear {
+            draftTitle = task.title
+        }
+        .onChange(of: task.title) { _, newValue in
+            if !isEditingTitle {
+                draftTitle = newValue
+            }
+        }
+        .onChange(of: isTitleFocused) { _, isFocused in
+            if !isFocused && isEditingTitle {
+                commitTitleEdit()
+            }
+        }
+    }
+
+    private func beginTitleEdit() {
+        draftTitle = task.title
+        isEditingTitle = true
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            isTitleFocused = true
+        }
+    }
+
+    private func commitTitleEdit() {
+        let trimmed = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !trimmed.isEmpty && trimmed != task.title {
+            onRename(trimmed)
+        } else {
+            draftTitle = task.title
+        }
+
+        isEditingTitle = false
+        isTitleFocused = false
+    }
+
+    private func cancelTitleEdit() {
+        draftTitle = task.title
+        isEditingTitle = false
+        isTitleFocused = false
+    }
+}
+
+private struct BoardReorderDropDelegate: DropDelegate {
+    let store: TaskBoardStore
+    let targetBoardID: TaskBoard.ID
+    @Binding var draggedBoardID: TaskBoard.ID?
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedBoardID else {
+            return
+        }
+
+        store.moveBoard(draggedID: draggedBoardID, to: targetBoardID)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedBoardID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {}
+}
+
+private struct TaskReorderDropDelegate: DropDelegate {
+    let store: TaskBoardStore
+    let boardID: TaskBoard.ID
+    let targetTaskID: TaskItem.ID
+    @Binding var draggedTaskID: TaskItem.ID?
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedTaskID else {
+            return
+        }
+
+        store.moveOpenTask(draggedID: draggedTaskID, in: boardID, to: targetTaskID)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedTaskID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {}
+}
+
+private struct DragPreview: View {
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
     }
 }
 

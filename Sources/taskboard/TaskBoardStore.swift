@@ -89,6 +89,24 @@ final class TaskBoardStore {
         persist()
     }
 
+    func renameTask(taskID: TaskItem.ID, in boardID: TaskBoard.ID, title rawTitle: String) {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !title.isEmpty,
+            let boardIndex = boards.firstIndex(where: { $0.id == boardID }),
+            let taskIndex = boards[boardIndex].tasks.firstIndex(where: { $0.id == taskID })
+        else {
+            return
+        }
+
+        guard boards[boardIndex].tasks[taskIndex].title != title else {
+            return
+        }
+
+        boards[boardIndex].tasks[taskIndex].title = title
+        persist()
+    }
+
     func toggleBoardExpansion(id: TaskBoard.ID) {
         guard let boardIndex = boards.firstIndex(where: { $0.id == id }) else {
             return
@@ -96,6 +114,50 @@ final class TaskBoardStore {
 
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
             boards[boardIndex].isExpanded.toggle()
+        }
+        persist()
+    }
+
+    func moveBoard(draggedID: TaskBoard.ID, to targetID: TaskBoard.ID) {
+        guard
+            draggedID != targetID,
+            let fromIndex = boards.firstIndex(where: { $0.id == draggedID }),
+            let toIndex = boards.firstIndex(where: { $0.id == targetID })
+        else {
+            return
+        }
+
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+            boards.move(
+                fromOffsets: IndexSet(integer: fromIndex),
+                toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+            )
+        }
+        persist()
+    }
+
+    func moveOpenTask(draggedID: TaskItem.ID, in boardID: TaskBoard.ID, to targetID: TaskItem.ID) {
+        guard let boardIndex = boards.firstIndex(where: { $0.id == boardID }) else {
+            return
+        }
+
+        var openTasks = boards[boardIndex].openTasks
+        let completedTasks = boards[boardIndex].tasks.filter(\.isCompleted)
+
+        guard
+            draggedID != targetID,
+            let fromIndex = openTasks.firstIndex(where: { $0.id == draggedID }),
+            let toIndex = openTasks.firstIndex(where: { $0.id == targetID })
+        else {
+            return
+        }
+
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+            openTasks.move(
+                fromOffsets: IndexSet(integer: fromIndex),
+                toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+            )
+            boards[boardIndex].tasks = openTasks + completedTasks
         }
         persist()
     }
@@ -128,8 +190,10 @@ final class TaskBoardStore {
         }
 
         withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
-            boards[boardIndex].tasks[taskIndex].isCompleted = true
-            boards[boardIndex].tasks[taskIndex].completedAt = .now
+            var task = boards[boardIndex].tasks.remove(at: taskIndex)
+            task.isCompleted = true
+            task.completedAt = .now
+            boards[boardIndex].tasks.append(task)
         }
         persist()
     }
