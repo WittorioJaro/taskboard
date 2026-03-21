@@ -99,14 +99,10 @@ Sources/taskboard/
 
 Contributions, issues, and improvement ideas are welcome.
 
-If you plan to open this project publicly, a good next step is to add:
-
-- a `LICENSE` file
-- screenshots or a short demo GIF
-- issue / pull request templates if you expect outside contributors
+If you open a pull request, a short note about the change and any manual testing helps a lot.
 
 ## License
 
-No license file is included yet.
+This project is licensed under the MIT License. You can use, copy, modify, publish, distribute, sublicense, and sell it, as long as the license notice is included.
 
-If you publish this repository on GitHub, choose and add a license before calling it open source. Until then, the default legal position is effectively "all rights reserved."
+See [`LICENSE`](./LICENSE) for the full text.
