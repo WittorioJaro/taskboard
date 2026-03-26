@@ -104,7 +104,9 @@ private struct MenuBarTaskRow: View {
                 Text(task.title)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(2)
+                    .lineLimit(nil)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button {

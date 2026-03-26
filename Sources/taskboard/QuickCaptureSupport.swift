@@ -290,13 +290,13 @@ struct QuickCaptureWindowView: View {
                     .buttonStyle(.plain)
                 }
 
-                HStack(spacing: 10) {
-                    TextField("Add a task", text: $controller.draftTitle)
+                HStack(alignment: .bottom, spacing: 10) {
+                    TextField("Add a task", text: $controller.draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(.white)
                         .focused($isTaskFieldFocused)
-                        .onSubmit(controller.submitTask)
+                        .lineLimit(2...6)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -304,6 +304,7 @@ struct QuickCaptureWindowView: View {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
                         )
+                        .frame(minHeight: 72, alignment: .topLeading)
 
                     Picker("Board", selection: $controller.selectedBoardID) {
                         ForEach(controller.boardOptions) { board in
@@ -334,7 +335,7 @@ struct QuickCaptureWindowView: View {
             }
             .padding(18)
         }
-        .frame(width: 460, height: 176)
+        .frame(width: 460, height: 214)
         .background(QuickCaptureWindowObserver())
         .task {
             controller.isCaptureWindowVisible = true

@@ -135,6 +135,10 @@ private struct QuickEntryBar: View {
     let onCreateBoard: () -> Void
     @Environment(\.openSettings) private var openSettings
 
+    private var isSubmitDisabled: Bool {
+        taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
@@ -149,69 +153,12 @@ private struct QuickEntryBar: View {
 
             Spacer(minLength: 12)
 
-            HStack(spacing: 10) {
-                TextField("Add a task", text: $taskTitle)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white)
-                    .focused(isQuickEntryFocused)
-                    .onSubmit(onSubmit)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 13)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-                    .frame(width: 320, height: 44)
-
-                Picker("Board", selection: $selectedBoardID) {
-                    ForEach(boards) { board in
-                        Text(board.title).tag(board.id as TaskBoard.ID?)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 160)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                )
-
-                Button(action: onSubmit) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.black)
-                        .frame(width: 44, height: 44)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
-
-                Button(action: onCreateBoard) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help("New Board")
-
-                Button {
-                    openSettings()
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help("Settings")
+            HStack(alignment: .bottom, spacing: 10) {
+                taskComposer
+                boardPicker
+                submitButton
+                createBoardButton
+                settingsButton
             }
             .frame(maxWidth: 760)
         }
@@ -224,6 +171,80 @@ private struct QuickEntryBar: View {
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
         )
+    }
+
+    private var taskComposer: some View {
+        TextField("Add a task", text: $taskTitle, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .foregroundStyle(.white)
+            .focused(isQuickEntryFocused)
+            .lineLimit(2...6)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .frame(width: 320)
+            .frame(minHeight: 72, alignment: .topLeading)
+    }
+
+    private var boardPicker: some View {
+        Picker("Board", selection: $selectedBoardID) {
+            ForEach(boards) { board in
+                Text(board.title).tag(board.id as TaskBoard.ID?)
+            }
+        }
+        .pickerStyle(.menu)
+        .frame(width: 160)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var submitButton: some View {
+        Button(action: onSubmit) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 44, height: 44)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isSubmitDisabled)
+        .opacity(isSubmitDisabled ? 0.45 : 1)
+    }
+
+    private var createBoardButton: some View {
+        Button(action: onCreateBoard) {
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("New Board")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            openSettings()
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Settings")
     }
 }
 
@@ -463,17 +484,19 @@ private struct InlineTaskEntryRow: View {
     var body: some View {
         Group {
             if isAdding {
-                HStack(spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "circle")
                         .font(.system(size: 16, weight: .regular))
                         .foregroundStyle(Color.white.opacity(0.28))
+                        .padding(.top, 10)
 
-                    TextField("New task", text: $taskTitle)
+                    TextField("New task", text: $taskTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.92))
                         .focused(isFocused)
-                        .onSubmit(onSubmit)
+                        .lineLimit(2...8)
+                        .padding(.top, 2)
 
                     Button(action: onSubmit) {
                         Text("ADD")
@@ -485,6 +508,7 @@ private struct InlineTaskEntryRow: View {
                     }
                     .buttonStyle(.plain)
                     .opacity(taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
+                    .padding(.top, 6)
 
                     Button(action: onCancel) {
                         Image(systemName: "xmark")
@@ -492,6 +516,7 @@ private struct InlineTaskEntryRow: View {
                             .foregroundStyle(Color.white.opacity(0.42))
                     }
                     .buttonStyle(.plain)
+                    .padding(.top, 8)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 12)
@@ -538,7 +563,7 @@ private struct MinimalTaskRow: View {
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Button(action: onDone) {
                 Image(systemName: "checkmark.circle")
                     .font(.system(size: 16, weight: .regular))
@@ -546,21 +571,24 @@ private struct MinimalTaskRow: View {
             }
             .buttonStyle(.plain)
             .help("Mark done")
+            .padding(.top, 2)
 
             Group {
                 if isEditingTitle {
-                    TextField("Task title", text: $draftTitle)
+                    TextField("Task title", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.96))
                         .focused($isTitleFocused)
-                        .onSubmit(commitTitleEdit)
+                        .lineLimit(2...10)
                         .onExitCommand(perform: cancelTitleEdit)
                 } else {
                     Button(action: beginTitleEdit) {
                         Text(task.title)
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(nil)
+                            .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
@@ -584,6 +612,7 @@ private struct MinimalTaskRow: View {
                     )
             }
             .buttonStyle(.plain)
+            .padding(.top, 2)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
