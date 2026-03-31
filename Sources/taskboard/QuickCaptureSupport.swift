@@ -266,15 +266,29 @@ struct QuickCaptureWindowView: View {
     @ObservedObject var controller: QuickCaptureController
     @FocusState private var isTaskFieldFocused: Bool
 
+    private var isSubmitDisabled: Bool {
+        controller.draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var selectedBoardTitle: String {
+        controller.boardOptions.first(where: { $0.id == controller.selectedBoardID })?.title ?? "Choose board"
+    }
+
     var body: some View {
         ZStack {
             Color(hex: "0B0E13").ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Text("Quick Capture")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Quick Capture")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+
+                        Text("Drop a task into the right board and keep moving.")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.46))
+                    }
 
                     Spacer()
 
@@ -290,7 +304,7 @@ struct QuickCaptureWindowView: View {
                     .buttonStyle(.plain)
                 }
 
-                HStack(alignment: .bottom, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
                     TextField("Add a task", text: $controller.draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
@@ -304,38 +318,61 @@ struct QuickCaptureWindowView: View {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
                         )
-                        .frame(minHeight: 72, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
 
-                    Picker("Board", selection: $controller.selectedBoardID) {
-                        ForEach(controller.boardOptions) { board in
-                            Text(board.title).tag(board.id as TaskBoard.ID?)
+                    HStack(alignment: .bottom, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Board")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color.white.opacity(0.42))
+
+                            Menu {
+                                ForEach(controller.boardOptions) { board in
+                                    Button(board.title) {
+                                        controller.selectedBoardID = board.id
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(selectedBoardTitle)
+                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+
+                                    Spacer(minLength: 10)
+
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(Color.white.opacity(0.5))
+                                }
+                                .padding(.horizontal, 14)
+                                .frame(height: 46)
+                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 160)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 11)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Button(action: controller.submitTask) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.black)
-                            .frame(width: 42, height: 42)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        Button(action: controller.submitTask) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.black)
+                                .frame(width: 46, height: 46)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSubmitDisabled)
+                        .opacity(isSubmitDisabled ? 0.45 : 1)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(controller.draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(controller.draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
                 }
             }
             .padding(18)
         }
-        .frame(width: 460, height: 214)
+        .frame(width: 460, height: 244)
         .background(QuickCaptureWindowObserver())
         .task {
             controller.isCaptureWindowVisible = true
