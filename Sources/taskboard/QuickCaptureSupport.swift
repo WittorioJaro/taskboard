@@ -310,15 +310,16 @@ struct QuickCaptureWindowView: View {
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(.white)
                         .focused($isTaskFieldFocused)
-                        .lineLimit(2...6)
+                        .lineLimit(1...6)
+                        .taskSubmitBehavior(onSubmit: controller.submitTask)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
 
                     HStack(alignment: .bottom, spacing: 10) {
                         VStack(alignment: .leading, spacing: 7) {

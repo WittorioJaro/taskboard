@@ -179,16 +179,17 @@ private struct QuickEntryBar: View {
             .font(.system(size: 15, weight: .medium, design: .rounded))
             .foregroundStyle(.white)
             .focused(isQuickEntryFocused)
-            .lineLimit(2...6)
+            .lineLimit(1...6)
+            .taskSubmitBehavior(onSubmit: onSubmit)
             .padding(.horizontal, 16)
-            .padding(.vertical, 13)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
-            )
-            .frame(width: 320)
-            .frame(minHeight: 72, alignment: .topLeading)
+            .padding(.vertical, 10)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .frame(width: 420)
+        .frame(minHeight: 44, alignment: .topLeading)
     }
 
     private var boardPicker: some View {
@@ -495,8 +496,9 @@ private struct InlineTaskEntryRow: View {
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.92))
                         .focused(isFocused)
-                        .lineLimit(2...8)
-                        .padding(.top, 2)
+                        .lineLimit(1...8)
+                        .taskSubmitBehavior(onSubmit: onSubmit)
+                        .padding(.top, 7)
 
                     Button(action: onSubmit) {
                         Text("ADD")
