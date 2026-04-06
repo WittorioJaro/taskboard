@@ -52,6 +52,10 @@ final class TaskBoardApplicationDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        !QuickCaptureController.shared.suppressMainWindowReopen
+    }
+
     @MainActor
     private func configureApplicationIcon() {
         guard let iconURL = Bundle.main.url(forResource: "taskboard", withExtension: "icns"),

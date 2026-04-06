@@ -122,6 +122,7 @@ final class QuickCaptureController: NSObject, ObservableObject {
     @Published var focusSeed = 0
     @Published private(set) var hotKeyStatus: QuickCaptureHotKeyStatus = .registered
     @Published var isCaptureWindowVisible = false
+    @Published private(set) var isOpeningCaptureWindow = false
 
     private weak var store: TaskBoardStore?
     private weak var captureWindow: NSWindow?
@@ -191,20 +192,21 @@ final class QuickCaptureController: NSObject, ObservableObject {
         }
 
         draftTitle = ""
+        isOpeningCaptureWindow = true
+        isCaptureWindowVisible = true
 
-        if let captureWindow {
-            captureWindow.makeKeyAndOrderFront(nil)
-            captureWindow.orderFrontRegardless()
-        } else {
+        if captureWindow == nil {
             openCaptureWindow?()
         }
 
-        isCaptureWindowVisible = true
+        requestCaptureWindowFocus()
         focusSeed += 1
         NSApp.activate(ignoringOtherApps: true)
+        scheduleCaptureWindowFocusRefresh()
     }
 
     func closeCaptureWindow() {
+        isOpeningCaptureWindow = false
         isCaptureWindowVisible = false
         if let captureWindow {
             captureWindow.orderOut(nil)
@@ -212,9 +214,30 @@ final class QuickCaptureController: NSObject, ObservableObject {
     }
 
     func quickCaptureWindowLostFocus() {
+        isOpeningCaptureWindow = false
         if isCaptureWindowVisible {
             closeCaptureWindow()
         }
+    }
+
+    func quickCaptureWindowBecameKey() {
+        isOpeningCaptureWindow = false
+        if isCaptureWindowVisible {
+            focusSeed += 1
+        }
+    }
+
+    func applicationDidBecomeActive() {
+        guard isCaptureWindowVisible else {
+            return
+        }
+
+        requestCaptureWindowFocus()
+        focusSeed += 1
+    }
+
+    var suppressMainWindowReopen: Bool {
+        isOpeningCaptureWindow || isCaptureWindowVisible
     }
 
     func openSettings() {
@@ -244,6 +267,24 @@ final class QuickCaptureController: NSObject, ObservableObject {
         }
     }
 
+    func cycleBoardSelection(reverse: Bool = false) {
+        guard !boardOptions.isEmpty else {
+            return
+        }
+
+        guard let selectedBoardID,
+              let currentIndex = boardOptions.firstIndex(where: { $0.id == selectedBoardID }) else {
+            self.selectedBoardID = boardOptions.first?.id
+            focusSeed += 1
+            return
+        }
+
+        let offset = reverse ? -1 : 1
+        let nextIndex = (currentIndex + offset + boardOptions.count) % boardOptions.count
+        self.selectedBoardID = boardOptions[nextIndex].id
+        focusSeed += 1
+    }
+
     private func syncBoards() {
         guard let store else {
             boardOptions = []
@@ -253,6 +294,36 @@ final class QuickCaptureController: NSObject, ObservableObject {
         boardOptions = store.boards
         if selectedBoardID == nil || boardOptions.contains(where: { $0.id == selectedBoardID }) == false {
             selectedBoardID = store.selectedBoardID ?? boardOptions.first?.id
+        }
+    }
+
+    private func requestCaptureWindowFocus() {
+        guard let captureWindow else {
+            return
+        }
+
+        captureWindow.orderFrontRegardless()
+        captureWindow.makeMain()
+        captureWindow.makeKeyAndOrderFront(nil)
+    }
+
+    private func scheduleCaptureWindowFocusRefresh() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(60))
+            guard isCaptureWindowVisible else {
+                return
+            }
+
+            requestCaptureWindowFocus()
+            focusSeed += 1
+
+            try? await Task.sleep(for: .milliseconds(160))
+            guard isCaptureWindowVisible else {
+                return
+            }
+
+            requestCaptureWindowFocus()
+            focusSeed += 1
         }
     }
 
@@ -310,16 +381,21 @@ struct QuickCaptureWindowView: View {
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(.white)
                         .focused($isTaskFieldFocused)
+                        .defaultFocus($isTaskFieldFocused, true)
                         .lineLimit(1...6)
+                        .onKeyPress(.tab, phases: [.down, .repeat]) { keyPress in
+                            controller.cycleBoardSelection(reverse: keyPress.modifiers.contains(.shift))
+                            return .handled
+                        }
                         .taskSubmitBehavior(onSubmit: controller.submitTask)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
 
                     HStack(alignment: .bottom, spacing: 10) {
                         VStack(alignment: .leading, spacing: 7) {
@@ -385,11 +461,15 @@ struct QuickCaptureWindowView: View {
         .onChange(of: controller.focusSeed) { _, _ in
             requestFocus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            controller.applicationDidBecomeActive()
+            requestFocus(delay: .milliseconds(30))
+        }
     }
 
-    private func requestFocus() {
+    private func requestFocus(delay: Duration = .milliseconds(80)) {
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(80))
+            try? await Task.sleep(for: delay)
             isTaskFieldFocused = true
         }
     }
@@ -432,6 +512,12 @@ private struct QuickCaptureWindowObserver: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSWindowDelegate {
+        func windowDidBecomeKey(_ notification: Notification) {
+            Task { @MainActor in
+                QuickCaptureController.shared.quickCaptureWindowBecameKey()
+            }
+        }
+
         func windowDidResignKey(_ notification: Notification) {
             Task { @MainActor in
                 QuickCaptureController.shared.quickCaptureWindowLostFocus()
