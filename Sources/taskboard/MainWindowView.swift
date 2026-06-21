@@ -24,6 +24,14 @@ struct MainWindowView: View {
         )
     }
 
+    private var pinnedBoard: TaskBoard? {
+        store.boards.first(where: \.isPinned)
+    }
+
+    private var unpinnedBoards: [TaskBoard] {
+        store.boards.filter { !$0.isPinned }
+    }
+
     var body: some View {
         ZStack {
             TaskBoardBackdrop()
@@ -41,13 +49,25 @@ struct MainWindowView: View {
                 )
 
                 ScrollView {
-                    LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 18) {
-                        ForEach(store.boards) { board in
+                    VStack(alignment: .leading, spacing: 18) {
+                        if let pinnedBoard {
                             BoardColumnView(
                                 store: store,
-                                boardID: board.id,
+                                boardID: pinnedBoard.id,
                                 draggedBoardID: $draggedBoardID
                             )
+                            .frame(maxWidth: .infinity)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
+                        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 18) {
+                            ForEach(unpinnedBoards) { board in
+                                BoardColumnView(
+                                    store: store,
+                                    boardID: board.id,
+                                    draggedBoardID: $draggedBoardID
+                                )
+                            }
                         }
                     }
                     .animation(.spring(response: 0.32, dampingFraction: 0.9), value: store.boards)
@@ -141,18 +161,6 @@ private struct QuickEntryBar: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("taskboard")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-
-                Text("Quick add to any board, then handle the rest inline.")
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.5))
-            }
-
-            Spacer(minLength: 12)
-
             HStack(alignment: .bottom, spacing: 10) {
                 taskComposer
                 boardPicker
@@ -160,7 +168,7 @@ private struct QuickEntryBar: View {
                 createBoardButton
                 settingsButton
             }
-            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
         }
         .padding(18)
         .background(
@@ -188,7 +196,7 @@ private struct QuickEntryBar: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
-        .frame(width: 420)
+        .frame(maxWidth: .infinity)
         .frame(minHeight: 44, alignment: .topLeading)
     }
 
@@ -258,6 +266,9 @@ private struct BoardColumnView: View {
     @State private var isAddingInlineTask = false
     @State private var draggedTaskID: TaskItem.ID?
     @State private var showingDeleteConfirmation = false
+    @State private var showingCodexSheet = false
+    @State private var directSendError: String?
+    @State private var runMonitor = CodexRunMonitor.shared
     @FocusState private var isInlineTaskFocused: Bool
 
     private var board: TaskBoard? {
@@ -300,6 +311,48 @@ private struct BoardColumnView: View {
                         .padding(.vertical, 7)
                         .background(board.theme.accentColor.opacity(0.12), in: Capsule())
 
+                    Button {
+                        store.selectedBoardID = board.id
+                        store.toggleBoardPin(id: board.id)
+                    } label: {
+                        Image(systemName: board.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(board.isPinned ? board.theme.accentColor : Color.white.opacity(0.48))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                board.isPinned ? board.theme.accentColor.opacity(0.12) : Color.white.opacity(0.04),
+                                in: Circle()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(board.isPinned ? "Unpin board" : "Pin board above all others")
+
+                    Button(action: chooseBoardFolder) {
+                        Image(systemName: board.folderPath.isEmpty ? "folder.badge.plus" : "folder.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(board.folderPath.isEmpty ? Color.orange.opacity(0.9) : Color.white.opacity(0.62))
+                            .frame(width: 30, height: 30)
+                            .background(Color.white.opacity(0.04), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(board.folderPath.isEmpty ? "Choose this board's folder" : board.folderPath)
+
+                    Button {
+                        store.selectedBoardID = board.id
+                        showingCodexSheet = true
+                    } label: {
+                        Label("Codex", systemImage: "paperplane")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.06), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Send selected tasks to Codex")
+                    .disabled(board.openTasks.isEmpty)
+                    .opacity(board.openTasks.isEmpty ? 0.45 : 1)
+
                     Button(role: .destructive) {
                         showingDeleteConfirmation = true
                     } label: {
@@ -319,6 +372,8 @@ private struct BoardColumnView: View {
                             .fill(Color.white.opacity(0.07))
                             .frame(height: 1)
 
+                        activityPanel(for: board)
+
                         if board.openTasks.isEmpty {
                             Text("No tasks yet")
                                 .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -336,6 +391,10 @@ private struct BoardColumnView: View {
                                     onCopy: {
                                         store.selectedBoardID = board.id
                                         store.copyTask(task)
+                                    },
+                                    codexRun: runMonitor.latestRun(for: task.id),
+                                    onSendToCodex: { taskID in
+                                        sendDirectlyToCodex(taskID: taskID, boardID: board.id)
                                     },
                                     onDone: {
                                         store.selectedBoardID = board.id
@@ -428,6 +487,18 @@ private struct BoardColumnView: View {
             } message: {
                 Text("This will permanently remove \"\(board.title)\" and every task inside it.")
             }
+            .sheet(isPresented: $showingCodexSheet) {
+                CodexSendSheet(store: store, boardID: board.id, isPresented: $showingCodexSheet)
+                    .preferredColorScheme(.dark)
+            }
+            .alert("Could not send to Codex", isPresented: Binding(
+                get: { directSendError != nil },
+                set: { if !$0 { directSendError = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(directSendError ?? "")
+            }
             .onChange(of: isInlineTaskFocused) { _, isFocused in
                 if !isFocused && inlineTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     isAddingInlineTask = false
@@ -446,6 +517,20 @@ private struct BoardColumnView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(80))
             isInlineTaskFocused = true
+        }
+    }
+
+    @ViewBuilder
+    private func activityPanel(for board: TaskBoard) -> some View {
+        let recentRuns = runMonitor.recentRuns(for: board.id)
+        if !recentRuns.isEmpty {
+            CodexActivityPanel(
+                runs: recentRuns,
+                accentColor: board.theme.accentColor,
+                onClear: { runMonitor.clearFinished(for: board.id) }
+            )
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
         }
     }
 
@@ -469,6 +554,54 @@ private struct BoardColumnView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
             isInlineTaskFocused = true
+        }
+    }
+
+    private func chooseBoardFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            store.setFolderPath(url.path, for: boardID)
+        }
+    }
+
+    private func sendDirectlyToCodex(taskID: TaskItem.ID, boardID: TaskBoard.ID) {
+        guard let board = store.board(for: boardID),
+              let task = store.task(for: taskID, in: boardID) else {
+            directSendError = "This task no longer exists."
+            return
+        }
+
+        let prompt = task.title
+        directSendError = nil
+        let runID = runMonitor.start(
+            boardID: boardID,
+            taskID: taskID,
+            title: prompt,
+            kind: .direct
+        )
+        Task {
+            do {
+                let receipt = try await CodexTaskDispatcher.shared.sendDirect(
+                    boardTitle: board.title,
+                    prompt: prompt,
+                    workspacePath: board.folderPath
+                ) { status in
+                    await MainActor.run {
+                        runMonitor.apply(status, to: runID)
+                    }
+                }
+                await MainActor.run {
+                    runMonitor.complete(runID, receipt: receipt)
+                }
+            } catch {
+                await MainActor.run {
+                    runMonitor.fail(runID, error: error)
+                    directSendError = error.localizedDescription
+                }
+            }
         }
     }
 }
@@ -556,6 +689,8 @@ private struct MinimalTaskRow: View {
     let task: TaskItem
     let isCopied: Bool
     let onCopy: () -> Void
+    let codexRun: CodexRunRecord?
+    let onSendToCodex: (TaskItem.ID) -> Void
     let onDone: () -> Void
     let onRename: (String) -> Void
     let onDragStart: () -> Void
@@ -602,6 +737,25 @@ private struct MinimalTaskRow: View {
 
             Spacer(minLength: 10)
 
+            Button(action: codexButtonAction) {
+                HStack(spacing: 5) {
+                    Image(systemName: codexRun?.phase.systemImage ?? "paperplane.fill")
+                        .symbolEffect(.pulse, isActive: codexRun?.phase.isActive == true)
+                    if codexRun != nil {
+                        Text(codexButtonTitle)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(codexStatusColor)
+                .padding(.horizontal, codexRun == nil ? 9 : 8)
+                .frame(height: 28)
+                .background(codexStatusColor.opacity(0.1), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(codexRun?.phase.isActive == true)
+            .help(codexHelpText)
+
             Button(action: onCopy) {
                 Text(isCopied ? "COPIED" : "COPY")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -640,6 +794,38 @@ private struct MinimalTaskRow: View {
         }
     }
 
+    private var codexStatusColor: Color {
+        guard let phase = codexRun?.phase else { return board.theme.accentColor }
+        switch phase {
+        case .completed: return .green
+        case .failed: return .orange
+        default: return board.theme.accentColor
+        }
+    }
+
+    private var codexHelpText: String {
+        guard let codexRun else { return "Send directly to Codex on main" }
+        if let error = codexRun.errorMessage {
+            return error
+        }
+        if let threadID = codexRun.threadID {
+            return "\(codexRun.phase.title) · Thread \(threadID)"
+        }
+        return codexRun.phase.title
+    }
+
+    private var codexButtonTitle: String {
+        codexRun?.phase == .completed ? "VIEW THREAD" : (codexRun?.phase.title.uppercased() ?? "")
+    }
+
+    private func codexButtonAction() {
+        if codexRun?.phase == .completed, let threadID = codexRun?.threadID {
+            CodexDesktopBridge.openThread(threadID)
+        } else {
+            onSendToCodex(task.id)
+        }
+    }
+
     private func beginTitleEdit() {
         draftTitle = task.title
         isEditingTitle = true
@@ -667,6 +853,76 @@ private struct MinimalTaskRow: View {
         draftTitle = task.title
         isEditingTitle = false
         isTitleFocused = false
+    }
+}
+
+private struct CodexActivityPanel: View {
+    let runs: [CodexRunRecord]
+    let accentColor: Color
+    let onClear: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("CODEX ACTIVITY")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.42))
+                Spacer()
+                Button("Clear finished", action: onClear)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.35))
+            }
+
+            ForEach(runs) { run in
+                HStack(spacing: 9) {
+                    Image(systemName: run.phase.systemImage)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(color(for: run.phase))
+                        .frame(width: 16)
+                        .symbolEffect(.pulse, isActive: run.phase.isActive)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(run.title)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .lineLimit(2)
+
+                        HStack(spacing: 5) {
+                            Text(run.phase.title)
+                            if let progress = run.progressText {
+                                Text("· \(progress)")
+                            }
+                            if let threadID = run.threadID {
+                                Text("· …\(CodexDisplayText.threadID(threadID))")
+                            } else if run.phase.isActive {
+                                Text("· thread pending")
+                            }
+                        }
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(color(for: run.phase).opacity(0.8))
+                    }
+
+                    Spacer()
+
+                    Text(run.updatedAt, style: .relative)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.3))
+                }
+                .help(run.errorMessage ?? run.threadID.map { "Codex thread \($0)" } ?? run.phase.title)
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.06)))
+    }
+
+    private func color(for phase: CodexRunPhase) -> Color {
+        switch phase {
+        case .completed: .green
+        case .failed: .orange
+        default: accentColor
+        }
     }
 }
 
@@ -740,6 +996,7 @@ private struct CreateBoardSheet: View {
     @Binding var isPresented: Bool
 
     @State private var boardTitle = ""
+    @State private var folderPath = ""
     @FocusState private var isBoardNameFocused: Bool
 
     var body: some View {
@@ -766,6 +1023,18 @@ private struct CreateBoardSheet: View {
                 .focused($isBoardNameFocused)
                 .onSubmit(createBoard)
 
+            HStack(spacing: 10) {
+                Text(folderPath.isEmpty ? "Choose the repository for this board" : folderPath)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(folderPath.isEmpty ? 0.42 : 0.72))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button("Choose Folder", action: chooseFolder)
+                    .buttonStyle(.bordered)
+            }
+
             HStack {
                 Button("Cancel") {
                     isPresented = false
@@ -782,7 +1051,7 @@ private struct CreateBoardSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 360)
+        .frame(width: 440)
         .background(Color(hex: "11151B"))
         .task {
             try? await Task.sleep(for: .milliseconds(100))
@@ -791,8 +1060,19 @@ private struct CreateBoardSheet: View {
     }
 
     private func createBoard() {
-        store.addBoard(named: boardTitle)
+        store.addBoard(named: boardTitle, folderPath: folderPath)
         boardTitle = ""
+        folderPath = ""
         isPresented = false
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            folderPath = url.path
+        }
     }
 }

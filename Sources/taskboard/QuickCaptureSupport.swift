@@ -123,6 +123,9 @@ final class QuickCaptureController: NSObject, ObservableObject {
     @Published private(set) var hotKeyStatus: QuickCaptureHotKeyStatus = .registered
     @Published var isCaptureWindowVisible = false
     @Published private(set) var isOpeningCaptureWindow = false
+    @Published private(set) var isSendingToCodex = false
+    @Published private(set) var codexPhase: CodexRunPhase?
+    @Published var codexError: String?
 
     private weak var store: TaskBoardStore?
     private weak var captureWindow: NSWindow?
@@ -264,6 +267,52 @@ final class QuickCaptureController: NSObject, ObservableObject {
             closeCaptureWindow()
         } else {
             focusSeed += 1
+        }
+    }
+
+    func submitDirectlyToCodex() {
+        let prompt = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else {
+            focusSeed += 1
+            return
+        }
+        guard let board = boardOptions.first(where: { $0.id == selectedBoardID }) else {
+            return
+        }
+
+        isSendingToCodex = true
+        codexPhase = .waiting
+        codexError = nil
+        let runID = CodexRunMonitor.shared.start(
+            boardID: board.id,
+            taskID: nil,
+            title: prompt,
+            kind: .direct
+        )
+        Task {
+            do {
+                let receipt = try await CodexTaskDispatcher.shared.sendDirect(
+                    boardTitle: board.title,
+                    prompt: prompt,
+                    workspacePath: board.folderPath
+                ) { status in
+                    await MainActor.run {
+                        self.codexPhase = status.phase
+                        CodexRunMonitor.shared.apply(status, to: runID)
+                    }
+                }
+                CodexRunMonitor.shared.complete(runID, receipt: receipt)
+                draftTitle = ""
+                isSendingToCodex = false
+                codexPhase = .completed
+                closeCaptureWindow()
+            } catch {
+                isSendingToCodex = false
+                codexPhase = .failed
+                CodexRunMonitor.shared.fail(runID, error: error)
+                codexError = error.localizedDescription
+                focusSeed += 1
+            }
         }
     }
 
@@ -434,6 +483,20 @@ struct QuickCaptureWindowView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
+                        Button(action: controller.submitDirectlyToCodex) {
+                            Image(systemName: controller.codexPhase?.systemImage ?? "paperplane.fill")
+                                .symbolEffect(.pulse, isActive: controller.isSendingToCodex)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 46, height: 46)
+                            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSubmitDisabled || controller.isSendingToCodex)
+                        .opacity(isSubmitDisabled ? 0.45 : 1)
+                        .help("Send directly to Codex on main")
+                        .keyboardShortcut(.return, modifiers: [.command])
+
                         Button(action: controller.submitTask) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 13, weight: .bold))
@@ -445,11 +508,29 @@ struct QuickCaptureWindowView: View {
                         .disabled(isSubmitDisabled)
                         .opacity(isSubmitDisabled ? 0.45 : 1)
                     }
+
+                    if let error = controller.codexError {
+                        Text(error)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color.orange.opacity(0.92))
+                            .lineLimit(2)
+                    } else if controller.isSendingToCodex, let phase = controller.codexPhase {
+                        HStack(spacing: 6) {
+                            Image(systemName: phase.systemImage)
+                                .symbolEffect(.pulse)
+                            Text("\(phase.title) · the Codex thread will appear after it is created")
+                        }
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.58))
+                    }
                 }
             }
             .padding(18)
         }
-        .frame(width: 460, height: 244)
+        .frame(
+            width: 500,
+            height: controller.codexError == nil && !controller.isSendingToCodex ? 244 : 282
+        )
         .background(QuickCaptureWindowObserver())
         .task {
             controller.isCaptureWindowVisible = true

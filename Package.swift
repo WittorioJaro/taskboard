@@ -13,5 +13,9 @@ let package = Package(
         .executableTarget(
             name: "taskboard"
         ),
+        .testTarget(
+            name: "taskboardTests",
+            dependencies: ["taskboard"]
+        ),
     ]
 )

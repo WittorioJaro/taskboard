@@ -26,7 +26,7 @@ struct TaskBoardApp: App {
             QuickCaptureWindowView(controller: QuickCaptureController.shared)
                 .preferredColorScheme(.dark)
         }
-        .defaultSize(width: 460, height: 244)
+        .defaultSize(width: 500, height: 282)
         .windowResizability(.contentSize)
 
         MenuBarExtra("taskboard", systemImage: "checklist") {

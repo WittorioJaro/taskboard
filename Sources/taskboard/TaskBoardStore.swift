@@ -40,12 +40,14 @@ final class TaskBoardStore {
         }
     }
 
-    func addBoard(named rawTitle: String) {
+    func addBoard(named rawTitle: String, folderPath rawFolderPath: String = "") {
         let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folderPath = rawFolderPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalTitle = title.isEmpty ? suggestedBoardTitle() : title
         let board = TaskBoard(
             title: finalTitle,
-            themeID: BoardTheme.random(excluding: Set(boards.map(\.themeID))).id
+            themeID: BoardTheme.random(excluding: Set(boards.map(\.themeID))).id,
+            folderPath: folderPath
         )
 
         withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
@@ -115,6 +117,29 @@ final class TaskBoardStore {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
             boards[boardIndex].isExpanded.toggle()
         }
+        persist()
+    }
+
+    func toggleBoardPin(id: TaskBoard.ID) {
+        guard let boardIndex = boards.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let shouldPin = !boards[boardIndex].isPinned
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+            for index in boards.indices {
+                boards[index].isPinned = shouldPin && index == boardIndex
+            }
+        }
+        persist()
+    }
+
+    func setFolderPath(_ rawFolderPath: String, for boardID: TaskBoard.ID) {
+        guard let boardIndex = boards.firstIndex(where: { $0.id == boardID }) else {
+            return
+        }
+
+        boards[boardIndex].folderPath = rawFolderPath.trimmingCharacters(in: .whitespacesAndNewlines)
         persist()
     }
 
@@ -195,11 +220,16 @@ final class TaskBoardStore {
             task.completedAt = .now
             boards[boardIndex].tasks.append(task)
         }
+        CodexRunMonitor.shared.removeRuns(for: taskID)
         persist()
     }
 
     func board(for boardID: TaskBoard.ID) -> TaskBoard? {
         boards.first(where: { $0.id == boardID })
+    }
+
+    func task(for taskID: TaskItem.ID, in boardID: TaskBoard.ID) -> TaskItem? {
+        board(for: boardID)?.tasks.first(where: { $0.id == taskID })
     }
 
     private func suggestedBoardTitle() -> String {

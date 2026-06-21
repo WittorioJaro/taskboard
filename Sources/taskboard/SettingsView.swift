@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import SwiftUI
 
@@ -107,11 +108,37 @@ struct SettingsView: View {
                     )
                 }
 
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Codex")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.48))
+                        .textCase(.uppercase)
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Each board owns its own repository folder. Set or change it with the folder button in the board header.")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.56))
+
+                        Text("Codex work runs in the background. Created threads remain available in Codex history without opening or focusing the Codex app.")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.46))
+                    }
+                    .padding(18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color.white.opacity(0.05))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            )
+                    )
+                }
+
                 Spacer()
             }
             .padding(24)
         }
-        .frame(width: 460, height: 430)
+        .frame(width: 540, height: 620)
         .onChange(of: quickCaptureKeyCode) { _, _ in
             QuickCaptureController.shared.reloadShortcut()
         }
@@ -122,6 +149,7 @@ struct SettingsView: View {
             QuickCaptureController.shared.reloadShortcut()
         }
     }
+
 }
 
 private struct ShortcutRecorderButton: View {

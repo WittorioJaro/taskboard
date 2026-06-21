@@ -27,23 +27,29 @@ struct TaskBoard: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
     var themeID: BoardTheme.ID
+    var folderPath: String
     let createdAt: Date
     var isExpanded: Bool
+    var isPinned: Bool
     var tasks: [TaskItem]
 
     init(
         id: UUID = UUID(),
         title: String,
         themeID: BoardTheme.ID = BoardTheme.defaultTheme.id,
+        folderPath: String = "",
         createdAt: Date = .now,
         isExpanded: Bool = true,
+        isPinned: Bool = false,
         tasks: [TaskItem] = []
     ) {
         self.id = id
         self.title = title
         self.themeID = themeID
+        self.folderPath = folderPath
         self.createdAt = createdAt
         self.isExpanded = isExpanded
+        self.isPinned = isPinned
         self.tasks = tasks
     }
 
@@ -63,8 +69,10 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         case id
         case title
         case themeID
+        case folderPath
         case createdAt
         case isExpanded
+        case isPinned
         case tasks
     }
 
@@ -73,8 +81,10 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         id = try container.decode(UUID.self, forKey: .id)
         title = try container.decode(String.self, forKey: .title)
         themeID = try container.decodeIfPresent(BoardTheme.ID.self, forKey: .themeID) ?? BoardTheme.defaultTheme.id
+        folderPath = try container.decodeIfPresent(String.self, forKey: .folderPath) ?? ""
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
         isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         tasks = try container.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
     }
 
@@ -83,8 +93,10 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)
         try container.encode(themeID, forKey: .themeID)
+        try container.encode(folderPath, forKey: .folderPath)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(isExpanded, forKey: .isExpanded)
+        try container.encode(isPinned, forKey: .isPinned)
         try container.encode(tasks, forKey: .tasks)
     }
 }

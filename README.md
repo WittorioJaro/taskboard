@@ -11,6 +11,9 @@ The app is intentionally local-first: your boards live on your Mac, the UI feels
 - One-click copy actions for moving tasks into other tools
 - Menu bar companion for browsing and acting on open tasks
 - Global quick-capture popup with a customizable keyboard shortcut
+- Per-board repository folders
+- Sequential Codex queues with branch, model, and reasoning controls
+- One-click direct prompts to Codex on a repository's `main` checkout
 - Native macOS interface built with SwiftUI and AppKit integrations
 
 ## Requirements
@@ -63,6 +66,9 @@ cp -R dist/taskboard.app /Applications/
 - Main window: browse boards, add tasks quickly, and complete or copy items inline
 - Menu bar companion: check open work without switching to the main window
 - Quick capture popup: add a task from anywhere using a global shortcut
+- Codex queue: send ordered tasks as separate prompts in one persistent Codex thread
+
+Each board can point at its own local Git repository. Queue runs use a dedicated worktree on an existing or new branch. Direct sends skip the queue and branch creation, and require that board folder to be checked out on `main`.
 
 Task data is stored locally as JSON, so the app starts fast and works without network access.
 
