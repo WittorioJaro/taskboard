@@ -9,6 +9,7 @@ struct MainWindowView: View {
 
     @State private var showingCreateBoardSheet = false
     @State private var quickTaskTitle = ""
+    @State private var quickTaskAttachments: [TaskAttachment] = []
     @State private var draggedBoardID: TaskBoard.ID?
     @AppStorage("boardColumnCount") private var boardColumnCount = 3
     @FocusState private var isQuickEntryFocused: Bool
@@ -39,6 +40,7 @@ struct MainWindowView: View {
             VStack(alignment: .leading, spacing: 18) {
                 QuickEntryBar(
                     taskTitle: $quickTaskTitle,
+                    attachments: $quickTaskAttachments,
                     selectedBoardID: $store.selectedBoardID,
                     boards: store.boards,
                     isQuickEntryFocused: $isQuickEntryFocused,
@@ -140,14 +142,16 @@ struct MainWindowView: View {
         }
 
         store.selectedBoardID = boardID
-        store.addTask(to: boardID, title: trimmed)
+        store.addTask(to: boardID, title: trimmed, attachments: quickTaskAttachments)
         quickTaskTitle = ""
+        quickTaskAttachments = []
         requestQuickEntryFocus()
     }
 }
 
 private struct QuickEntryBar: View {
     @Binding var taskTitle: String
+    @Binding var attachments: [TaskAttachment]
     @Binding var selectedBoardID: TaskBoard.ID?
     let boards: [TaskBoard]
     let isQuickEntryFocused: FocusState<Bool>.Binding
@@ -162,8 +166,15 @@ private struct QuickEntryBar: View {
     var body: some View {
         HStack(spacing: 14) {
             HStack(alignment: .bottom, spacing: 10) {
-                taskComposer
+                VStack(alignment: .leading, spacing: 8) {
+                    taskComposer
+                    AttachmentDraftStrip(attachments: attachments) { attachment in
+                        attachments.removeAll { $0.id == attachment.id }
+                        TaskAttachmentStore.delete(attachment)
+                    }
+                }
                 boardPicker
+                PasteAttachmentButton(action: pasteAttachment)
                 submitButton
                 createBoardButton
                 settingsButton
@@ -198,6 +209,19 @@ private struct QuickEntryBar: View {
         )
         .frame(maxWidth: .infinity)
         .frame(minHeight: 44, alignment: .topLeading)
+        .onKeyPress("v", phases: [.down]) { keyPress in
+            guard keyPress.modifiers == .command, TaskAttachmentStore.hasImageOnPasteboard else {
+                return .ignored
+            }
+            pasteAttachment()
+            return .handled
+        }
+    }
+
+    private func pasteAttachment() {
+        if let attachment = TaskAttachmentStore.pasteImage() {
+            attachments.append(attachment)
+        }
     }
 
     private var boardPicker: some View {
@@ -263,6 +287,7 @@ private struct BoardColumnView: View {
     @Binding var draggedBoardID: TaskBoard.ID?
 
     @State private var inlineTaskTitle = ""
+    @State private var inlineTaskAttachments: [TaskAttachment] = []
     @State private var isAddingInlineTask = false
     @State private var draggedTaskID: TaskItem.ID?
     @State private var showingDeleteConfirmation = false
@@ -372,18 +397,81 @@ private struct BoardColumnView: View {
                             .fill(Color.white.opacity(0.07))
                             .frame(height: 1)
 
-                        activityPanel(for: board)
-
-                        if board.openTasks.isEmpty {
-                            Text("No tasks yet")
-                                .font(.system(size: 12, weight: .medium, design: .rounded))
-                                .foregroundStyle(Color.white.opacity(0.36))
-                                .padding(.horizontal, 18)
-                                .padding(.top, 16)
+                        let doneTasks = board.openTasks.filter {
+                            runMonitor.latestRun(for: $0.id)?.phase == .completed
+                        }
+                        let runningTasks = board.openTasks.filter {
+                            runMonitor.latestRun(for: $0.id)?.phase.isActive == true
+                        }
+                        let todoTasks = board.openTasks.filter {
+                            guard let phase = runMonitor.latestRun(for: $0.id)?.phase else { return true }
+                            return !phase.isActive && phase != .completed
                         }
 
-                        VStack(spacing: 0) {
-                            ForEach(board.openTasks) { task in
+                        TaskSectionHeader(
+                            title: "DONE",
+                            count: doneTasks.count,
+                            systemImage: "checkmark",
+                            tint: .green
+                        )
+
+                        TaskSectionSurface(isEmpty: doneTasks.isEmpty, emptyText: "Completed tasks will land here") {
+                            ForEach(doneTasks) { task in
+                                MinimalTaskRow(
+                                    board: board,
+                                    task: task,
+                                    isCopied: store.copiedTaskID == task.id,
+                                    onCopy: { store.copyTask(task) },
+                                    codexRun: runMonitor.latestRun(for: task.id),
+                                    onSendToCodex: { _ in },
+                                    onDone: {
+                                        store.selectedBoardID = board.id
+                                        store.markTaskDone(taskID: task.id, in: board.id)
+                                    },
+                                    onRename: { newTitle in
+                                        store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                    },
+                                    onDragStart: {}
+                                )
+                            }
+                        }
+
+                        TaskSectionHeader(
+                            title: "RUNNING",
+                            count: runningTasks.count,
+                            systemImage: "waveform.path",
+                            tint: board.theme.accentColor
+                        )
+
+                        TaskSectionSurface(isEmpty: runningTasks.isEmpty, emptyText: "Nothing is running") {
+                            ForEach(runningTasks) { task in
+                                MinimalTaskRow(
+                                    board: board,
+                                    task: task,
+                                    isCopied: store.copiedTaskID == task.id,
+                                    onCopy: { store.copyTask(task) },
+                                    codexRun: runMonitor.latestRun(for: task.id),
+                                    onSendToCodex: { _ in },
+                                    onDone: {
+                                        store.markTaskDone(taskID: task.id, in: board.id)
+                                    },
+                                    onRename: { newTitle in
+                                        store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                    },
+                                    onDragStart: {}
+                                )
+                            }
+                        }
+
+                        TaskSectionHeader(
+                            title: "TODO",
+                            count: todoTasks.count,
+                            systemImage: "circle",
+                            tint: Color.white.opacity(0.48)
+                        )
+
+                        TaskSectionSurface(isEmpty: todoTasks.isEmpty, emptyText: "No tasks waiting") {
+                            ForEach(todoTasks) { task in
                                 MinimalTaskRow(
                                     board: board,
                                     task: task,
@@ -419,21 +507,13 @@ private struct BoardColumnView: View {
                                     )
                                 )
                                 .transition(.opacity.combined(with: .move(edge: .top)))
-
-                                if task.id != board.openTasks.last?.id {
-                                    Rectangle()
-                                        .fill(Color.white.opacity(0.05))
-                                        .frame(height: 1)
-                                        .padding(.horizontal, 18)
-                                }
                             }
                         }
-                        .padding(.top, board.openTasks.isEmpty ? 8 : 4)
-                        .padding(.bottom, 4)
 
                         InlineTaskEntryRow(
                             board: board,
                             taskTitle: $inlineTaskTitle,
+                            attachments: $inlineTaskAttachments,
                             isAdding: $isAddingInlineTask,
                             isFocused: $isInlineTaskFocused,
                             onBegin: beginInlineEntry,
@@ -441,6 +521,7 @@ private struct BoardColumnView: View {
                             onCancel: cancelInlineEntry
                         )
                         .padding(.horizontal, 18)
+                        .padding(.top, 10)
                         .padding(.bottom, 18)
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -461,7 +542,7 @@ private struct BoardColumnView: View {
             }
             .shadow(color: .black.opacity(0.22), radius: 26, x: 0, y: 18)
             .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.isExpanded)
-            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.openTasks)
+            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.tasks)
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .onDrag {
                 draggedBoardID = board.id
@@ -520,25 +601,10 @@ private struct BoardColumnView: View {
         }
     }
 
-    @ViewBuilder
-    private func activityPanel(for board: TaskBoard) -> some View {
-        let recentRuns = runMonitor.recentRuns(for: board.id)
-        if !recentRuns.isEmpty {
-            CodexActivityPanel(
-                runs: recentRuns,
-                accentColor: board.theme.accentColor,
-                onClear: {
-                    let completedTaskIDs = runMonitor.clearFinished(for: board.id)
-                    store.markTasksDone(taskIDs: completedTaskIDs, in: board.id)
-                }
-            )
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-        }
-    }
-
     private func cancelInlineEntry() {
+        inlineTaskAttachments.forEach(TaskAttachmentStore.delete)
         inlineTaskTitle = ""
+        inlineTaskAttachments = []
         isAddingInlineTask = false
         isInlineTaskFocused = false
     }
@@ -551,8 +617,9 @@ private struct BoardColumnView: View {
         }
 
         store.selectedBoardID = boardID
-        store.addTask(to: boardID, title: trimmed)
+        store.addTask(to: boardID, title: trimmed, attachments: inlineTaskAttachments)
         inlineTaskTitle = ""
+        inlineTaskAttachments = []
 
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
@@ -590,6 +657,7 @@ private struct BoardColumnView: View {
                 let receipt = try await CodexTaskDispatcher.shared.sendDirect(
                     boardTitle: board.title,
                     prompt: prompt,
+                    attachments: task.attachments,
                     workspacePath: board.folderPath
                 ) { status in
                     await MainActor.run {
@@ -609,9 +677,70 @@ private struct BoardColumnView: View {
     }
 }
 
+private struct TaskSectionHeader: View {
+    let title: String
+    let count: Int
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: 16, height: 16)
+
+            Text(title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .tracking(1.1)
+                .foregroundStyle(Color.white.opacity(0.48))
+
+            Spacer()
+
+            Text("\(count)")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(count == 0 ? Color.white.opacity(0.24) : tint)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
+}
+
+private struct TaskSectionSurface<Content: View>: View {
+    let isEmpty: Bool
+    let emptyText: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Group {
+            if isEmpty {
+                Text(emptyText)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.28))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+            } else {
+                VStack(spacing: 0) {
+                    content
+                }
+            }
+        }
+        .background(Color.white.opacity(0.026), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.055), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 18)
+    }
+}
+
 private struct InlineTaskEntryRow: View {
     let board: TaskBoard
     @Binding var taskTitle: String
+    @Binding var attachments: [TaskAttachment]
     @Binding var isAdding: Bool
     let isFocused: FocusState<Bool>.Binding
     let onBegin: () -> Void
@@ -627,14 +756,39 @@ private struct InlineTaskEntryRow: View {
                         .foregroundStyle(Color.white.opacity(0.28))
                         .padding(.top, 10)
 
-                    TextField("New task", text: $taskTitle, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .focused(isFocused)
-                        .lineLimit(1...8)
-                        .taskSubmitBehavior(onSubmit: onSubmit)
-                        .padding(.top, 7)
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("New task", text: $taskTitle, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .focused(isFocused)
+                            .lineLimit(1...8)
+                            .taskSubmitBehavior(onSubmit: onSubmit)
+                            .onKeyPress("v", phases: [.down]) { keyPress in
+                                guard keyPress.modifiers == .command, TaskAttachmentStore.hasImageOnPasteboard else {
+                                    return .ignored
+                                }
+                                pasteAttachment()
+                                return .handled
+                            }
+                            .padding(.top, 7)
+
+                        AttachmentDraftStrip(attachments: attachments) { attachment in
+                            attachments.removeAll { $0.id == attachment.id }
+                            TaskAttachmentStore.delete(attachment)
+                        }
+                    }
+
+                    Button(action: pasteAttachment) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.56))
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.05), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Paste image from clipboard")
+                    .padding(.top, 6)
 
                     Button(action: onSubmit) {
                         Text("ADD")
@@ -685,6 +839,12 @@ private struct InlineTaskEntryRow: View {
             }
         }
     }
+
+    private func pasteAttachment() {
+        if let attachment = TaskAttachmentStore.pasteImage() {
+            attachments.append(attachment)
+        }
+    }
 }
 
 private struct MinimalTaskRow: View {
@@ -713,8 +873,9 @@ private struct MinimalTaskRow: View {
             .help("Mark done")
             .padding(.top, 2)
 
-            Group {
-                if isEditingTitle {
+            VStack(alignment: .leading, spacing: 8) {
+                Group {
+                    if isEditingTitle {
                     TextField("Task title", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -722,7 +883,7 @@ private struct MinimalTaskRow: View {
                         .focused($isTitleFocused)
                         .lineLimit(2...10)
                         .onExitCommand(perform: cancelTitleEdit)
-                } else {
+                    } else {
                     Button(action: beginTitleEdit) {
                         Text(task.title)
                             .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -734,7 +895,10 @@ private struct MinimalTaskRow: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    }
                 }
+
+                AttachmentDraftStrip(attachments: task.attachments)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

@@ -98,11 +98,14 @@ struct CodexSendSheet: View {
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundStyle(selectedTaskIDs.contains(task.id) ? board.theme.accentColor : Color.white.opacity(0.3))
                                     .padding(.top, 1)
-                                Text(task.title)
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.9))
-                                    .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(task.title)
+                                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.9))
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    AttachmentDraftStrip(attachments: task.attachments)
+                                }
                             }
                             .padding(13)
                             .background(Color.white.opacity(selectedTaskIDs.contains(task.id) ? 0.08 : 0.035), in: RoundedRectangle(cornerRadius: 14))

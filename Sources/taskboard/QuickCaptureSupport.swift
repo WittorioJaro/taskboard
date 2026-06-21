@@ -117,6 +117,7 @@ final class QuickCaptureController: NSObject, ObservableObject {
     static let shared = QuickCaptureController()
 
     @Published var draftTitle = ""
+    @Published var draftAttachments: [TaskAttachment] = []
     @Published var selectedBoardID: TaskBoard.ID?
     @Published private(set) var boardOptions: [TaskBoard] = []
     @Published var focusSeed = 0
@@ -190,7 +191,9 @@ final class QuickCaptureController: NSObject, ObservableObject {
             selectedBoardID = store?.selectedBoardID ?? boardOptions.first?.id
         }
 
+        draftAttachments.forEach(TaskAttachmentStore.delete)
         draftTitle = ""
+        draftAttachments = []
         isOpeningCaptureWindow = true
         isCaptureWindowVisible = true
 
@@ -255,8 +258,9 @@ final class QuickCaptureController: NSObject, ObservableObject {
         }
 
         store.selectedBoardID = boardID
-        store.addTask(to: boardID, title: trimmed)
+        store.addTask(to: boardID, title: trimmed, attachments: draftAttachments)
         draftTitle = ""
+        draftAttachments = []
         syncBoards()
 
         if closesAfterSubmit {
@@ -274,12 +278,18 @@ final class QuickCaptureController: NSObject, ObservableObject {
         }
         guard let store,
               let board = boardOptions.first(where: { $0.id == selectedBoardID }),
-              let taskID = store.addTask(to: board.id, title: prompt) else {
+              let taskID = store.addTask(
+                to: board.id,
+                title: prompt,
+                attachments: draftAttachments
+              ) else {
             return
         }
 
+        let attachments = draftAttachments
         store.selectedBoardID = board.id
         draftTitle = ""
+        draftAttachments = []
         syncBoards()
         closeCaptureWindow()
 
@@ -294,6 +304,7 @@ final class QuickCaptureController: NSObject, ObservableObject {
                 let receipt = try await CodexTaskDispatcher.shared.sendDirect(
                     boardTitle: board.title,
                     prompt: prompt,
+                    attachments: attachments,
                     workspacePath: board.folderPath
                 ) { status in
                     await MainActor.run {
@@ -322,6 +333,19 @@ final class QuickCaptureController: NSObject, ObservableObject {
         let offset = reverse ? -1 : 1
         let nextIndex = (currentIndex + offset + boardOptions.count) % boardOptions.count
         self.selectedBoardID = boardOptions[nextIndex].id
+        focusSeed += 1
+    }
+
+    func pasteAttachment() {
+        if let attachment = TaskAttachmentStore.pasteImage() {
+            draftAttachments.append(attachment)
+        }
+        focusSeed += 1
+    }
+
+    func removeAttachment(_ attachment: TaskAttachment) {
+        draftAttachments.removeAll { $0.id == attachment.id }
+        TaskAttachmentStore.delete(attachment)
         focusSeed += 1
     }
 
@@ -428,6 +452,13 @@ struct QuickCaptureWindowView: View {
                             return .handled
                         }
                         .taskSubmitBehavior(onSubmit: controller.submitTask)
+                        .onKeyPress("v", phases: [.down]) { keyPress in
+                            guard keyPress.modifiers == .command, TaskAttachmentStore.hasImageOnPasteboard else {
+                                return .ignored
+                            }
+                            controller.pasteAttachment()
+                            return .handled
+                        }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -436,6 +467,10 @@ struct QuickCaptureWindowView: View {
                                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
                         )
                         .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+
+                    AttachmentDraftStrip(attachments: controller.draftAttachments) {
+                        controller.removeAttachment($0)
+                    }
 
                     HStack(alignment: .bottom, spacing: 10) {
                         VStack(alignment: .leading, spacing: 7) {
@@ -474,6 +509,16 @@ struct QuickCaptureWindowView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
+                        Button(action: controller.pasteAttachment) {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.72))
+                                .frame(width: 46, height: 46)
+                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Paste image from clipboard")
+
                         Button(action: controller.submitDirectlyToCodex) {
                             Image(systemName: "paperplane.fill")
                             .font(.system(size: 13, weight: .bold))
@@ -503,7 +548,7 @@ struct QuickCaptureWindowView: View {
             }
             .padding(18)
         }
-        .frame(width: 500, height: 244)
+        .frame(width: 500, height: controller.draftAttachments.isEmpty ? 244 : 308)
         .background(QuickCaptureWindowObserver())
         .task {
             controller.isCaptureWindowVisible = true

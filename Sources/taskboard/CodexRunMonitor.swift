@@ -180,7 +180,9 @@ final class CodexRunMonitor {
     }
 
     func latestRun(for taskID: TaskItem.ID) -> CodexRunRecord? {
-        runs.first(where: { $0.taskID == taskID })
+        runs.first(where: { run in
+            run.taskID == taskID || run.taskIDs?.contains(taskID) == true
+        })
     }
 
     @discardableResult

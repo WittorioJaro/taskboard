@@ -3,6 +3,17 @@ import XCTest
 @testable import taskboard
 
 final class CodexIntegrationTests: XCTestCase {
+    func testTurnInputIncludesLocalImageAlongsidePrompt() throws {
+        let attachment = TaskAttachment(fileName: "shot.png", path: "/tmp/shot.png")
+        let input = CodexTurnInput.make(prompt: "Inspect this", attachments: [attachment])
+
+        XCTAssertEqual(input.count, 2)
+        XCTAssertEqual(input[0]["type"] as? String, "text")
+        XCTAssertEqual(input[0]["text"] as? String, "Inspect this")
+        XCTAssertEqual(input[1]["type"] as? String, "localImage")
+        XCTAssertEqual(input[1]["path"] as? String, "/tmp/shot.png")
+    }
+
     func testBranchNameSanitizesUserInput() {
         XCTAssertEqual(
             CodexBranchNameBuilder.sanitize("  My Feature / Fix It!  "),

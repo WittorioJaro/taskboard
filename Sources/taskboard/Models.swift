@@ -7,19 +7,48 @@ struct TaskItem: Identifiable, Codable, Hashable {
     let createdAt: Date
     var isCompleted: Bool
     var completedAt: Date?
+    var attachments: [TaskAttachment]
 
     init(
         id: UUID = UUID(),
         title: String,
         createdAt: Date = .now,
         isCompleted: Bool = false,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        attachments: [TaskAttachment] = []
     ) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.isCompleted = isCompleted
         self.completedAt = completedAt
+        self.attachments = attachments
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, createdAt, isCompleted, completedAt, attachments
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        attachments = try container.decodeIfPresent([TaskAttachment].self, forKey: .attachments) ?? []
+    }
+}
+
+struct TaskAttachment: Identifiable, Codable, Hashable, Sendable {
+    let id: UUID
+    let fileName: String
+    let path: String
+
+    init(id: UUID = UUID(), fileName: String, path: String) {
+        self.id = id
+        self.fileName = fileName
+        self.path = path
     }
 }
 

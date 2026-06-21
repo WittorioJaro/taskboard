@@ -195,6 +195,14 @@ struct CodexDisplayText {
     }
 }
 
+enum CodexTurnInput {
+    static func make(prompt: String, attachments: [TaskAttachment]) -> [[String: Any]] {
+        var input: [[String: Any]] = [["type": "text", "text": prompt, "text_elements": []]]
+        input.append(contentsOf: attachments.map { ["type": "localImage", "path": $0.path] })
+        return input
+    }
+}
+
 actor CodexTaskDispatcher {
     static let shared = CodexTaskDispatcher()
     private var sessionTask: Task<CodexAppServerSession, Error>?
@@ -282,6 +290,7 @@ actor CodexTaskDispatcher {
                 threadID: threadID,
                 cwd: prepared.worktreeURL.path,
                 prompt: task.title,
+                attachments: task.attachments,
                 model: model,
                 effort: effort
             )
@@ -306,6 +315,7 @@ actor CodexTaskDispatcher {
     func sendDirect(
         boardTitle: String,
         prompt: String,
+        attachments: [TaskAttachment] = [],
         workspacePath: String,
         status: @escaping @Sendable (CodexDispatchStatus) async -> Void = { _ in }
     ) async throws -> CodexLaunchReceipt {
@@ -316,6 +326,7 @@ actor CodexTaskDispatcher {
             let receipt = try await performDirect(
                 boardTitle: boardTitle,
                 prompt: prompt,
+                attachments: attachments,
                 workspacePath: workspacePath,
                 status: status
             )
@@ -332,6 +343,7 @@ actor CodexTaskDispatcher {
     private func performDirect(
         boardTitle: String,
         prompt: String,
+        attachments: [TaskAttachment],
         workspacePath: String,
         status: @escaping @Sendable (CodexDispatchStatus) async -> Void
     ) async throws -> CodexLaunchReceipt {
@@ -352,6 +364,7 @@ actor CodexTaskDispatcher {
             threadID: threadID,
             cwd: root.path,
             prompt: prompt,
+            attachments: attachments,
             model: .recommended,
             effort: .medium
         )
@@ -685,10 +698,18 @@ private actor CodexAppServerSession {
         threadID: String,
         cwd: String,
         prompt: String,
+        attachments: [TaskAttachment] = [],
         model: CodexModel,
         effort: CodexReasoningEffort
     ) async throws {
-        try await startTurn(threadID: threadID, cwd: cwd, prompt: prompt, model: model, effort: effort)
+        try await startTurn(
+            threadID: threadID,
+            cwd: cwd,
+            prompt: prompt,
+            attachments: attachments,
+            model: model,
+            effort: effort
+        )
         try await waitForTurnCompletion()
         try await Task.sleep(for: .milliseconds(250))
     }
@@ -697,6 +718,7 @@ private actor CodexAppServerSession {
         threadID: String,
         cwd: String,
         prompt: String,
+        attachments: [TaskAttachment] = [],
         model: CodexModel,
         effort: CodexReasoningEffort
     ) async throws {
@@ -708,7 +730,7 @@ private actor CodexAppServerSession {
             "approvalPolicy": "never",
             "sandboxPolicy": ["type": "dangerFullAccess"],
             "effort": effort.rawValue,
-            "input": [["type": "text", "text": prompt, "text_elements": []]],
+            "input": CodexTurnInput.make(prompt: prompt, attachments: attachments),
         ]
         if !model.rawValue.isEmpty { params["model"] = model.rawValue }
         let response = try await request(method: "turn/start", params: params)

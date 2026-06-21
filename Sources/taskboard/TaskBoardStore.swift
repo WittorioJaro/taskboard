@@ -79,13 +79,17 @@ final class TaskBoardStore {
     }
 
     @discardableResult
-    func addTask(to boardID: TaskBoard.ID, title rawTitle: String) -> TaskItem.ID? {
+    func addTask(
+        to boardID: TaskBoard.ID,
+        title rawTitle: String,
+        attachments: [TaskAttachment] = []
+    ) -> TaskItem.ID? {
         let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, let boardIndex = boards.firstIndex(where: { $0.id == boardID }) else {
             return nil
         }
 
-        let task = TaskItem(title: title)
+        let task = TaskItem(title: title, attachments: attachments)
         withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             boards[boardIndex].tasks.append(task)
         }
