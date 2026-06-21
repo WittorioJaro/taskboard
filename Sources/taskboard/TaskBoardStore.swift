@@ -78,10 +78,11 @@ final class TaskBoardStore {
         persist()
     }
 
-    func addTask(to boardID: TaskBoard.ID, title rawTitle: String) {
+    @discardableResult
+    func addTask(to boardID: TaskBoard.ID, title rawTitle: String) -> TaskItem.ID? {
         let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, let boardIndex = boards.firstIndex(where: { $0.id == boardID }) else {
-            return
+            return nil
         }
 
         let task = TaskItem(title: title)
@@ -89,6 +90,7 @@ final class TaskBoardStore {
             boards[boardIndex].tasks.append(task)
         }
         persist()
+        return task.id
     }
 
     func renameTask(taskID: TaskItem.ID, in boardID: TaskBoard.ID, title rawTitle: String) {
@@ -222,6 +224,35 @@ final class TaskBoardStore {
         }
         CodexRunMonitor.shared.removeRuns(for: taskID)
         persist()
+    }
+
+    func markTasksDone(taskIDs: Set<TaskItem.ID>, in boardID: TaskBoard.ID) {
+        guard
+            !taskIDs.isEmpty,
+            let boardIndex = boards.firstIndex(where: { $0.id == boardID })
+        else {
+            return
+        }
+
+        var didChange = false
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
+            for taskIndex in boards[boardIndex].tasks.indices
+            where taskIDs.contains(boards[boardIndex].tasks[taskIndex].id)
+                && !boards[boardIndex].tasks[taskIndex].isCompleted {
+                boards[boardIndex].tasks[taskIndex].isCompleted = true
+                boards[boardIndex].tasks[taskIndex].completedAt = .now
+                didChange = true
+            }
+
+            if didChange {
+                boards[boardIndex].tasks = boards[boardIndex].openTasks
+                    + boards[boardIndex].tasks.filter(\.isCompleted)
+            }
+        }
+
+        if didChange {
+            persist()
+        }
     }
 
     func board(for boardID: TaskBoard.ID) -> TaskBoard? {

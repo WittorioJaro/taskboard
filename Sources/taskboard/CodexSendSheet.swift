@@ -317,6 +317,7 @@ struct CodexSendSheet: View {
         let runID = runMonitor.start(
             boardID: board.id,
             taskID: nil,
+            taskIDs: tasks.map(\.id),
             title: "\(tasks.count) prompt\(tasks.count == 1 ? "" : "s") · \(board.title)",
             kind: .queue,
             totalCount: tasks.count

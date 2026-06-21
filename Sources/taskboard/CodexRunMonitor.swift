@@ -72,6 +72,7 @@ struct CodexRunRecord: Identifiable, Codable, Sendable {
     let id: UUID
     let boardID: TaskBoard.ID
     let taskID: TaskItem.ID?
+    let taskIDs: [TaskItem.ID]?
     let title: String
     let kind: Kind
     let startedAt: Date
@@ -120,6 +121,7 @@ final class CodexRunMonitor {
     func start(
         boardID: TaskBoard.ID,
         taskID: TaskItem.ID?,
+        taskIDs: [TaskItem.ID] = [],
         title: String,
         kind: CodexRunRecord.Kind,
         totalCount: Int = 1
@@ -128,6 +130,7 @@ final class CodexRunMonitor {
             id: UUID(),
             boardID: boardID,
             taskID: taskID,
+            taskIDs: taskIDs.isEmpty ? taskID.map { [$0] } : taskIDs,
             title: title,
             kind: kind,
             startedAt: .now,
@@ -180,9 +183,16 @@ final class CodexRunMonitor {
         runs.first(where: { $0.taskID == taskID })
     }
 
-    func clearFinished(for boardID: TaskBoard.ID) {
+    @discardableResult
+    func clearFinished(for boardID: TaskBoard.ID) -> Set<TaskItem.ID> {
+        let completedTaskIDs = Set(
+            runs
+                .filter { $0.boardID == boardID && $0.phase == .completed }
+                .flatMap { $0.taskIDs ?? $0.taskID.map { [$0] } ?? [] }
+        )
         runs.removeAll { $0.boardID == boardID && !$0.phase.isActive }
         persist()
+        return completedTaskIDs
     }
 
     func removeRuns(for taskID: TaskItem.ID) {

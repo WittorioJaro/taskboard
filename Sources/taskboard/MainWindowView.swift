@@ -527,7 +527,10 @@ private struct BoardColumnView: View {
             CodexActivityPanel(
                 runs: recentRuns,
                 accentColor: board.theme.accentColor,
-                onClear: { runMonitor.clearFinished(for: board.id) }
+                onClear: {
+                    let completedTaskIDs = runMonitor.clearFinished(for: board.id)
+                    store.markTasksDone(taskIDs: completedTaskIDs, in: board.id)
+                }
             )
             .padding(.horizontal, 18)
             .padding(.top, 14)
@@ -861,6 +864,10 @@ private struct CodexActivityPanel: View {
     let accentColor: Color
     let onClear: () -> Void
 
+    private var hasFinishedRuns: Bool {
+        runs.contains { !$0.phase.isActive }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
@@ -872,6 +879,8 @@ private struct CodexActivityPanel: View {
                     .buttonStyle(.plain)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.35))
+                    .disabled(!hasFinishedRuns)
+                    .opacity(hasFinishedRuns ? 1 : 0.4)
             }
 
             ForEach(runs) { run in

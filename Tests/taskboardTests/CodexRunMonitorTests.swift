@@ -87,6 +87,55 @@ final class CodexRunMonitorTests: XCTestCase {
         XCTAssertEqual(monitor.recentRuns(for: boardID).first?.kind, .queue)
     }
 
+    func testClearingFinishedReturnsOnlySuccessfullyCompletedTaskIDs() {
+        let monitor = CodexRunMonitor(defaults: makeDefaults())
+        let boardID = UUID()
+        let completedTaskIDs = [UUID(), UUID()]
+        let completedRunID = monitor.start(
+            boardID: boardID,
+            taskID: nil,
+            taskIDs: completedTaskIDs,
+            title: "Completed queue",
+            kind: .queue,
+            totalCount: completedTaskIDs.count
+        )
+        monitor.complete(
+            completedRunID,
+            receipt: CodexLaunchReceipt(
+                threadID: "thread-completed",
+                branchName: nil,
+                worktreePath: "/tmp/repo",
+                completedTaskCount: completedTaskIDs.count
+            )
+        )
+
+        let failedTaskID = UUID()
+        let failedRunID = monitor.start(
+            boardID: boardID,
+            taskID: failedTaskID,
+            title: "Failed task",
+            kind: .direct
+        )
+        monitor.fail(failedRunID, error: TestError.failed)
+
+        let activeTaskID = UUID()
+        _ = monitor.start(
+            boardID: boardID,
+            taskID: activeTaskID,
+            title: "Active task",
+            kind: .direct
+        )
+
+        let taskIDsToMarkDone = monitor.clearFinished(for: boardID)
+
+        XCTAssertEqual(taskIDsToMarkDone, Set(completedTaskIDs))
+        XCTAssertEqual(monitor.recentRuns(for: boardID).map(\.taskID), [activeTaskID])
+    }
+
+    private enum TestError: Error {
+        case failed
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "CodexRunMonitorTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
