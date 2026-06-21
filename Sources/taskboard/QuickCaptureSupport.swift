@@ -191,9 +191,6 @@ final class QuickCaptureController: NSObject, ObservableObject {
             selectedBoardID = store?.selectedBoardID ?? boardOptions.first?.id
         }
 
-        draftAttachments.forEach(TaskAttachmentStore.delete)
-        draftTitle = ""
-        draftAttachments = []
         isOpeningCaptureWindow = true
         isCaptureWindowVisible = true
 
@@ -212,13 +209,6 @@ final class QuickCaptureController: NSObject, ObservableObject {
         isCaptureWindowVisible = false
         if let captureWindow {
             captureWindow.orderOut(nil)
-        }
-    }
-
-    func quickCaptureWindowLostFocus() {
-        isOpeningCaptureWindow = false
-        if isCaptureWindowVisible {
-            closeCaptureWindow()
         }
     }
 
@@ -437,6 +427,7 @@ struct QuickCaptureWindowView: View {
                             .background(Color.white.opacity(0.05), in: Circle())
                     }
                     .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -614,12 +605,6 @@ private struct QuickCaptureWindowObserver: NSViewRepresentable {
         func windowDidBecomeKey(_ notification: Notification) {
             Task { @MainActor in
                 QuickCaptureController.shared.quickCaptureWindowBecameKey()
-            }
-        }
-
-        func windowDidResignKey(_ notification: Notification) {
-            Task { @MainActor in
-                QuickCaptureController.shared.quickCaptureWindowLostFocus()
             }
         }
     }

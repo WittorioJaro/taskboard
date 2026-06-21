@@ -86,7 +86,7 @@ struct SettingsView: View {
                                     .font(.system(size: 15, weight: .medium, design: .rounded))
                                     .foregroundStyle(.white)
 
-                                Text("Outside click and pressing the shortcut again always dismiss the popup.")
+                                Text("Escape, the close button, and pressing the shortcut again dismiss the popup.")
                                     .font(.system(size: 12, weight: .medium, design: .rounded))
                                     .foregroundStyle(Color.white.opacity(0.46))
                             }
