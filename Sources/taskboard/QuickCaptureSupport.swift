@@ -428,6 +428,7 @@ struct QuickCaptureWindowView: View {
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
+                    .help("Close quick capture (Esc)")
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -442,7 +443,7 @@ struct QuickCaptureWindowView: View {
                             controller.cycleBoardSelection(reverse: keyPress.modifiers.contains(.shift))
                             return .handled
                         }
-                        .taskSubmitBehavior(onSubmit: controller.submitTask)
+                        .taskSubmitBehavior(onSubmit: controller.submitDirectlyToCodex)
                         .onKeyPress("v", phases: [.down]) { keyPress in
                             guard keyPress.modifiers == .command, TaskAttachmentStore.hasImageOnPasteboard else {
                                 return .ignored
@@ -497,6 +498,7 @@ struct QuickCaptureWindowView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .help("Choose a taskboard (Tab to cycle)")
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -508,7 +510,7 @@ struct QuickCaptureWindowView: View {
                                 .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         .buttonStyle(.plain)
-                        .help("Paste image from clipboard")
+                        .help("Paste image from clipboard (⌘V)")
 
                         Button(action: controller.submitDirectlyToCodex) {
                             Image(systemName: "paperplane.fill")
@@ -520,8 +522,8 @@ struct QuickCaptureWindowView: View {
                         .buttonStyle(.plain)
                         .disabled(isSubmitDisabled)
                         .opacity(isSubmitDisabled ? 0.45 : 1)
-                        .help("Send directly to Codex on main")
-                        .keyboardShortcut(.return, modifiers: [.command])
+                        .help("Send directly to Codex on main (Return)")
+                        .keyboardShortcut(.return, modifiers: [])
 
                         Button(action: controller.submitTask) {
                             Image(systemName: "arrow.up")
@@ -533,6 +535,8 @@ struct QuickCaptureWindowView: View {
                         .buttonStyle(.plain)
                         .disabled(isSubmitDisabled)
                         .opacity(isSubmitDisabled ? 0.45 : 1)
+                        .help("Add to taskboard (⌘Return)")
+                        .keyboardShortcut(.return, modifiers: [.command])
                     }
 
                 }
