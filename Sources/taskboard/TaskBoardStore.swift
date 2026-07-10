@@ -115,6 +115,37 @@ final class TaskBoardStore {
         persist()
     }
 
+    func moveTask(taskID: TaskItem.ID, in boardID: TaskBoard.ID, to status: TaskStatus) {
+        guard
+            let boardIndex = boards.firstIndex(where: { $0.id == boardID }),
+            let taskIndex = boards[boardIndex].tasks.firstIndex(where: { $0.id == taskID }),
+            !boards[boardIndex].tasks[taskIndex].isCompleted,
+            boards[boardIndex].tasks[taskIndex].statusOverride != status
+        else {
+            return
+        }
+
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+            boards[boardIndex].tasks[taskIndex].statusOverride = status
+        }
+        persist()
+    }
+
+    func clearTaskStatusOverride(taskIDs: [TaskItem.ID], in boardID: TaskBoard.ID) {
+        guard let boardIndex = boards.firstIndex(where: { $0.id == boardID }) else { return }
+        let taskIDs = Set(taskIDs)
+        var didChange = false
+
+        for taskIndex in boards[boardIndex].tasks.indices
+        where taskIDs.contains(boards[boardIndex].tasks[taskIndex].id)
+            && boards[boardIndex].tasks[taskIndex].statusOverride != nil {
+            boards[boardIndex].tasks[taskIndex].statusOverride = nil
+            didChange = true
+        }
+
+        if didChange { persist() }
+    }
+
     func toggleBoardExpansion(id: TaskBoard.ID) {
         guard let boardIndex = boards.firstIndex(where: { $0.id == id }) else {
             return
@@ -223,6 +254,7 @@ final class TaskBoardStore {
         withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
             var task = boards[boardIndex].tasks.remove(at: taskIndex)
             task.isCompleted = true
+            task.statusOverride = nil
             task.completedAt = .now
             boards[boardIndex].tasks.append(task)
         }
@@ -244,6 +276,7 @@ final class TaskBoardStore {
             where taskIDs.contains(boards[boardIndex].tasks[taskIndex].id)
                 && !boards[boardIndex].tasks[taskIndex].isCompleted {
                 boards[boardIndex].tasks[taskIndex].isCompleted = true
+                boards[boardIndex].tasks[taskIndex].statusOverride = nil
                 boards[boardIndex].tasks[taskIndex].completedAt = .now
                 didChange = true
             }

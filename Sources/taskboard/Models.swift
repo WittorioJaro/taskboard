@@ -1,11 +1,20 @@
 import Foundation
 import SwiftUI
 
+enum TaskStatus: String, Codable, Hashable, CaseIterable, Identifiable {
+    case todo
+    case running
+    case done
+
+    var id: Self { self }
+}
+
 struct TaskItem: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
     let createdAt: Date
     var isCompleted: Bool
+    var statusOverride: TaskStatus?
     var completedAt: Date?
     var attachments: [TaskAttachment]
 
@@ -14,6 +23,7 @@ struct TaskItem: Identifiable, Codable, Hashable {
         title: String,
         createdAt: Date = .now,
         isCompleted: Bool = false,
+        statusOverride: TaskStatus? = nil,
         completedAt: Date? = nil,
         attachments: [TaskAttachment] = []
     ) {
@@ -21,12 +31,13 @@ struct TaskItem: Identifiable, Codable, Hashable {
         self.title = title
         self.createdAt = createdAt
         self.isCompleted = isCompleted
+        self.statusOverride = statusOverride
         self.completedAt = completedAt
         self.attachments = attachments
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, isCompleted, completedAt, attachments
+        case id, title, createdAt, isCompleted, statusOverride, isManuallyRunning, completedAt, attachments
     }
 
     init(from decoder: any Decoder) throws {
@@ -35,8 +46,24 @@ struct TaskItem: Identifiable, Codable, Hashable {
         title = try container.decode(String.self, forKey: .title)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
+        statusOverride = try container.decodeIfPresent(TaskStatus.self, forKey: .statusOverride)
+        if statusOverride == nil,
+           try container.decodeIfPresent(Bool.self, forKey: .isManuallyRunning) == true {
+            statusOverride = .running
+        }
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         attachments = try container.decodeIfPresent([TaskAttachment].self, forKey: .attachments) ?? []
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(isCompleted, forKey: .isCompleted)
+        try container.encodeIfPresent(statusOverride, forKey: .statusOverride)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encode(attachments, forKey: .attachments)
     }
 }
 

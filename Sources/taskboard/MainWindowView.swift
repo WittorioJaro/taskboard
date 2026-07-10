@@ -2,6 +2,10 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private extension UTType {
+    static let taskboardTask = UTType(exportedAs: "com.taskboard.task")
+}
+
 struct MainWindowView: View {
     @Bindable var store: TaskBoardStore
     @Environment(\.openWindow) private var openWindow
@@ -11,72 +15,75 @@ struct MainWindowView: View {
     @State private var quickTaskTitle = ""
     @State private var quickTaskAttachments: [TaskAttachment] = []
     @State private var draggedBoardID: TaskBoard.ID?
-    @AppStorage("boardColumnCount") private var boardColumnCount = 3
+    @State private var isWindowHovered = false
+    @AppStorage("didApplyCompactMainWindowSizeV1") private var didApplyCompactWindowSize = false
+    @AppStorage(WindowPreferences.openMainWindowInCurrentSpaceDefaultsKey)
+    private var openMainWindowInCurrentSpace = WindowPreferences.openMainWindowInCurrentSpaceDefaultValue
     @FocusState private var isQuickEntryFocused: Bool
-
-    private var clampedColumnCount: Int {
-        min(max(boardColumnCount, 1), 5)
-    }
-
-    private var gridColumns: [GridItem] {
-        Array(
-            repeating: GridItem(.flexible(minimum: 260, maximum: 420), spacing: 18, alignment: .top),
-            count: clampedColumnCount
-        )
-    }
-
-    private var pinnedBoard: TaskBoard? {
-        store.boards.first(where: \.isPinned)
-    }
-
-    private var unpinnedBoards: [TaskBoard] {
-        store.boards.filter { !$0.isPinned }
-    }
 
     var body: some View {
         ZStack {
             TaskBoardBackdrop()
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 0) {
+                CompactWindowHeader(
+                    boards: store.boards,
+                    selectedBoardID: $store.selectedBoardID,
+                    draggedBoardID: $draggedBoardID,
+                    onCreateBoard: { showingCreateBoardSheet = true },
+                    onOpenSettings: { openSettings() },
+                    onMoveBoard: store.moveBoard,
+                    showWindowControls: isWindowHovered,
+                    onCloseWindow: { mainWindow()?.performClose(nil) },
+                    onMinimizeWindow: { mainWindow()?.miniaturize(nil) },
+                    onZoomWindow: { mainWindow()?.zoom(nil) }
+                )
+
                 QuickEntryBar(
                     taskTitle: $quickTaskTitle,
                     attachments: $quickTaskAttachments,
-                    selectedBoardID: $store.selectedBoardID,
-                    boards: store.boards,
+                    boardTitle: store.selectedBoard?.title ?? "board",
                     isQuickEntryFocused: $isQuickEntryFocused,
-                    onSubmit: submitQuickTask,
-                    onCreateBoard: {
-                        showingCreateBoardSheet = true
-                    }
+                    onSubmit: submitQuickTask
                 )
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        if let pinnedBoard {
+                if let selectedBoardID = store.selectedBoardID,
+                   store.board(for: selectedBoardID) != nil {
+                    ScrollView {
+                        VStack(spacing: 0) {
                             BoardColumnView(
                                 store: store,
-                                boardID: pinnedBoard.id,
-                                draggedBoardID: $draggedBoardID
+                                boardID: selectedBoardID
                             )
-                            .frame(maxWidth: .infinity)
-                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
-
-                        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 18) {
-                            ForEach(unpinnedBoards) { board in
-                                BoardColumnView(
-                                    store: store,
-                                    boardID: board.id,
-                                    draggedBoardID: $draggedBoardID
-                                )
-                            }
-                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .id(selectedBoardID)
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
                     }
-                    .animation(.spring(response: 0.32, dampingFraction: 0.9), value: store.boards)
+                    .scrollIndicators(.hidden)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.88), value: selectedBoardID)
+                } else {
+                    ContentUnavailableView(
+                        "No board selected",
+                        systemImage: "rectangle.stack",
+                        description: Text("Create a board to start collecting tasks.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .foregroundStyle(Color.white.opacity(0.52))
                 }
-                .scrollIndicators(.hidden)
             }
-            .padding(24)
+            .ignoresSafeArea(.container, edges: .top)
+        }
+        .background {
+            WindowHoverSensor { isHovering in
+                withAnimation(.easeOut(duration: 0.14)) {
+                    isWindowHovered = isHovering
+                }
+            }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showingCreateBoardSheet) {
@@ -98,9 +105,14 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             requestQuickEntryFocus()
         }
+        .onChange(of: openMainWindowInCurrentSpace) { _, isEnabled in
+            guard let mainWindow = mainWindow() else { return }
+            MainWindowSpaceBehavior.apply(to: mainWindow, enabled: isEnabled)
+        }
         .onAppear {
             Task { @MainActor in
                 NSApp.activate(ignoringOtherApps: true)
+                configureFloatingWindow()
             }
             QuickCaptureController.shared.installWindowActions(
                 openCaptureWindow: {
@@ -111,6 +123,40 @@ struct MainWindowView: View {
                 }
             )
         }
+    }
+
+    private func configureFloatingWindow() {
+        guard let mainWindow = mainWindow() else { return }
+
+        mainWindow.title = ""
+        mainWindow.titleVisibility = .hidden
+        mainWindow.titlebarAppearsTransparent = true
+        mainWindow.titlebarSeparatorStyle = .none
+        mainWindow.styleMask.insert(.fullSizeContentView)
+        mainWindow.backgroundColor = NSColor(
+            srgbRed: 12.0 / 255.0,
+            green: 15.0 / 255.0,
+            blue: 19.0 / 255.0,
+            alpha: 1
+        )
+        mainWindow.isMovableByWindowBackground = false
+        mainWindow.hasShadow = true
+        mainWindow.standardWindowButton(.closeButton)?.isHidden = true
+        mainWindow.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        mainWindow.standardWindowButton(.zoomButton)?.isHidden = true
+        MainWindowSpaceBehavior.apply(to: mainWindow, enabled: openMainWindowInCurrentSpace)
+
+        if !didApplyCompactWindowSize {
+            mainWindow.setContentSize(NSSize(width: 390, height: 700))
+            mainWindow.center()
+            didApplyCompactWindowSize = true
+        }
+    }
+
+    private func mainWindow() -> NSWindow? {
+        MainWindowSpaceBehavior.mainWindow()
+            ?? NSApp.keyWindow
+            ?? NSApp.windows.first
     }
 
     private func ensureSelectedBoard() {
@@ -149,66 +195,332 @@ struct MainWindowView: View {
     }
 }
 
+private struct WindowHoverSensor: NSViewRepresentable {
+    let onHoverChanged: (Bool) -> Void
+
+    func makeNSView(context: Context) -> WindowHoverTrackingView {
+        let view = WindowHoverTrackingView()
+        view.onHoverChanged = onHoverChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowHoverTrackingView, context: Context) {
+        nsView.onHoverChanged = onHoverChanged
+    }
+}
+
+private final class WindowHoverTrackingView: NSView {
+    var onHoverChanged: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        onHoverChanged?(window.frame.contains(NSEvent.mouseLocation))
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let hoverTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
+    }
+}
+
+private struct WindowDragHandle: NSViewRepresentable {
+    func makeNSView(context: Context) -> WindowDragHandleView {
+        WindowDragHandleView()
+    }
+
+    func updateNSView(_ nsView: WindowDragHandleView, context: Context) {}
+}
+
+private final class WindowDragHandleView: NSView {
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+}
+
+private struct CompactWindowHeader: View {
+    let boards: [TaskBoard]
+    @Binding var selectedBoardID: TaskBoard.ID?
+    @Binding var draggedBoardID: TaskBoard.ID?
+    let onCreateBoard: () -> Void
+    let onOpenSettings: () -> Void
+    let onMoveBoard: (TaskBoard.ID, TaskBoard.ID) -> Void
+    let showWindowControls: Bool
+    let onCloseWindow: () -> Void
+    let onMinimizeWindow: () -> Void
+    let onZoomWindow: () -> Void
+
+    @State private var isTitleBarHovered = false
+
+    private var windowControlsAreVisible: Bool {
+        showWindowControls || isTitleBarHovered
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                WindowDragHandle()
+                    .frame(width: 180, height: 30)
+
+                Text("taskboard")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.5))
+                    .allowsHitTesting(false)
+
+                HStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        WindowControlButton(
+                            color: Color(red: 1, green: 0.37, blue: 0.34),
+                            systemImage: "xmark",
+                            help: "Close",
+                            action: onCloseWindow
+                        )
+                        WindowControlButton(
+                            color: Color(red: 1, green: 0.74, blue: 0.18),
+                            systemImage: "minus",
+                            help: "Minimize",
+                            action: onMinimizeWindow
+                        )
+                        WindowControlButton(
+                            color: Color(red: 0.16, green: 0.78, blue: 0.29),
+                            systemImage: "plus",
+                            help: "Zoom",
+                            action: onZoomWindow
+                        )
+                    }
+                    .opacity(windowControlsAreVisible ? 1 : 0)
+                    .allowsHitTesting(windowControlsAreVisible)
+
+                    Spacer()
+
+                    Button(action: onOpenSettings) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.44))
+                            .frame(width: 28, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Settings")
+                }
+                .padding(.horizontal, 12)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .contentShape(Rectangle())
+            .onHover { isHovering in
+                withAnimation(.easeOut(duration: 0.12)) {
+                    isTitleBarHovered = isHovering
+                }
+            }
+
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(boards) { board in
+                        BoardTab(
+                            board: board,
+                            isSelected: selectedBoardID == board.id,
+                            onSelect: { selectedBoardID = board.id }
+                        )
+                        .onDrag {
+                            draggedBoardID = board.id
+                            return NSItemProvider(object: board.id.uuidString as NSString)
+                        } preview: {
+                            DragPreview()
+                        }
+                        .onDrop(
+                            of: [UTType.text],
+                            delegate: CompactBoardDropDelegate(
+                                targetBoardID: board.id,
+                                draggedBoardID: $draggedBoardID,
+                                onMoveBoard: onMoveBoard
+                            )
+                        )
+                    }
+
+                    Button(action: onCreateBoard) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.48))
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("New board")
+                }
+                .padding(.horizontal, 16)
+            }
+            .scrollIndicators(.hidden)
+            .padding(.vertical, 9)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+        }
+        .background(Color(hex: "0C0F13").opacity(0.96))
+    }
+}
+
+private struct WindowControlButton: View {
+    let color: Color
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Circle()
+                .fill(color)
+                .frame(width: 11, height: 11)
+                .overlay {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 5, weight: .black))
+                        .foregroundStyle(Color.black.opacity(0.58))
+                }
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
+private struct BoardTab: View {
+    let board: TaskBoard
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(board.theme.accentColor)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: board.theme.accentColor.opacity(isSelected ? 0.8 : 0), radius: 4)
+
+                Text(board.title)
+                    .lineLimit(1)
+
+                if board.openTasks.count > 0 {
+                    Text("\(board.openTasks.count)")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(isSelected ? board.theme.accentColor : Color.white.opacity(0.3))
+                }
+            }
+            .font(.system(size: 11, weight: isSelected ? .semibold : .medium, design: .rounded))
+            .foregroundStyle(isSelected ? Color.white.opacity(0.94) : Color.white.opacity(0.46))
+            .padding(.horizontal, 11)
+            .frame(height: 28)
+            .background(
+                isSelected ? Color.white.opacity(0.075) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? Color.white.opacity(0.08) : Color.clear, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct CompactBoardDropDelegate: DropDelegate {
+    let targetBoardID: TaskBoard.ID
+    @Binding var draggedBoardID: TaskBoard.ID?
+    let onMoveBoard: (TaskBoard.ID, TaskBoard.ID) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedBoardID, draggedBoardID != targetBoardID else { return }
+        onMoveBoard(draggedBoardID, targetBoardID)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedBoardID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+}
+
 private struct QuickEntryBar: View {
     @Binding var taskTitle: String
     @Binding var attachments: [TaskAttachment]
-    @Binding var selectedBoardID: TaskBoard.ID?
-    let boards: [TaskBoard]
+    let boardTitle: String
     let isQuickEntryFocused: FocusState<Bool>.Binding
     let onSubmit: () -> Void
-    let onCreateBoard: () -> Void
-    @Environment(\.openSettings) private var openSettings
 
     private var isSubmitDisabled: Bool {
         taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            HStack(alignment: .bottom, spacing: 10) {
-                VStack(alignment: .leading, spacing: 8) {
-                    taskComposer
-                    AttachmentDraftStrip(attachments: attachments) { attachment in
-                        attachments.removeAll { $0.id == attachment.id }
-                        TaskAttachmentStore.delete(attachment)
-                    }
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.32))
+                    .frame(width: 28, height: 28)
+
+                taskComposer
+
+                Button(action: pasteAttachment) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.42))
+                        .frame(width: 30, height: 30)
                 }
-                boardPicker
-                PasteAttachmentButton(action: pasteAttachment)
+                .buttonStyle(.plain)
+                .help("Paste image from clipboard")
+
                 submitButton
-                createBoardButton
-                settingsButton
             }
-            .frame(maxWidth: .infinity)
+
+            AttachmentDraftStrip(attachments: attachments) { attachment in
+                attachments.removeAll { $0.id == attachment.id }
+                TaskAttachmentStore.delete(attachment)
+            }
         }
-        .padding(18)
+        .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Color.white.opacity(0.045))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(Color.white.opacity(0.07), lineWidth: 1)
                 )
         )
     }
 
     private var taskComposer: some View {
-        TextField("Add a task", text: $taskTitle, axis: .vertical)
+        TextField("Add a task to \(boardTitle)", text: $taskTitle, axis: .vertical)
             .textFieldStyle(.plain)
-            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .font(.system(size: 13, weight: .medium, design: .rounded))
             .foregroundStyle(.white)
             .focused(isQuickEntryFocused)
-            .lineLimit(1...6)
+            .lineLimit(1...3)
             .taskSubmitBehavior(onSubmit: onSubmit)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 44, alignment: .topLeading)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 30, alignment: .topLeading)
         .onKeyPress("v", phases: [.down]) { keyPress in
             guard keyPress.modifiers == .command, TaskAttachmentStore.hasImageOnPasteboard else {
                 return .ignored
@@ -224,72 +536,30 @@ private struct QuickEntryBar: View {
         }
     }
 
-    private var boardPicker: some View {
-        Picker("Board", selection: $selectedBoardID) {
-            ForEach(boards) { board in
-                Text(board.title).tag(board.id as TaskBoard.ID?)
-            }
-        }
-        .pickerStyle(.menu)
-        .frame(width: 160)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
-    }
-
     private var submitButton: some View {
         Button(action: onSubmit) {
             Image(systemName: "arrow.up")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(.black)
-                .frame(width: 44, height: 44)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(width: 30, height: 30)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isSubmitDisabled)
         .opacity(isSubmitDisabled ? 0.45 : 1)
     }
 
-    private var createBoardButton: some View {
-        Button(action: onCreateBoard) {
-            Image(systemName: "plus")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .help("New Board")
-    }
-
-    private var settingsButton: some View {
-        Button {
-            openSettings()
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(width: 44, height: 44)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .help("Settings")
-    }
 }
 
 private struct BoardColumnView: View {
     @Bindable var store: TaskBoardStore
     let boardID: TaskBoard.ID
-    @Binding var draggedBoardID: TaskBoard.ID?
 
     @State private var inlineTaskTitle = ""
     @State private var inlineTaskAttachments: [TaskAttachment] = []
     @State private var isAddingInlineTask = false
     @State private var draggedTaskID: TaskItem.ID?
+    @State private var targetedStatus: TaskStatus?
     @State private var showingDeleteConfirmation = false
     @State private var showingCodexSheet = false
     @State private var directSendError: String?
@@ -303,61 +573,25 @@ private struct BoardColumnView: View {
     var body: some View {
         if let board {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 12) {
-                    Button {
-                        store.selectedBoardID = board.id
-                        store.toggleBoardExpansion(id: board.id)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: board.isExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Color.white.opacity(0.56))
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(board.title)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.94))
+                            .lineLimit(1)
 
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(board.title)
-                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-
-                                Text("\(board.openTasks.count) open · \(board.completedCount) done")
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(Color.white.opacity(0.42))
-                            }
-
-                            Spacer(minLength: 8)
-                        }
+                        Text("\(board.openTasks.count) active · \(board.completedCount) archived")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color.white.opacity(0.34))
                     }
-                    .buttonStyle(.plain)
 
-                    Text("\(board.openTasks.count)")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(board.theme.accentColor)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 7)
-                        .background(board.theme.accentColor.opacity(0.12), in: Capsule())
-
-                    Button {
-                        store.selectedBoardID = board.id
-                        store.toggleBoardPin(id: board.id)
-                    } label: {
-                        Image(systemName: board.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(board.isPinned ? board.theme.accentColor : Color.white.opacity(0.48))
-                            .frame(width: 30, height: 30)
-                            .background(
-                                board.isPinned ? board.theme.accentColor.opacity(0.12) : Color.white.opacity(0.04),
-                                in: Circle()
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help(board.isPinned ? "Unpin board" : "Pin board above all others")
+                    Spacer(minLength: 8)
 
                     Button(action: chooseBoardFolder) {
                         Image(systemName: board.folderPath.isEmpty ? "folder.badge.plus" : "folder.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(board.folderPath.isEmpty ? Color.orange.opacity(0.9) : Color.white.opacity(0.62))
-                            .frame(width: 30, height: 30)
-                            .background(Color.white.opacity(0.04), in: Circle())
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(board.folderPath.isEmpty ? Color.orange.opacity(0.72) : Color.white.opacity(0.48))
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
                     .help(board.folderPath.isEmpty ? "Choose this board's folder" : board.folderPath)
@@ -366,199 +600,181 @@ private struct BoardColumnView: View {
                         store.selectedBoardID = board.id
                         showingCodexSheet = true
                     } label: {
-                        Label("Codex", systemImage: "paperplane")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.06), in: Capsule())
+                        Image(systemName: "paperplane")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(board.theme.accentColor)
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
                     .help("Send selected tasks to Codex")
                     .disabled(board.openTasks.isEmpty)
                     .opacity(board.openTasks.isEmpty ? 0.45 : 1)
 
-                    Button(role: .destructive) {
-                        showingDeleteConfirmation = true
+                    Menu {
+                        Button(board.isPinned ? "Unpin board" : "Pin board") {
+                            store.toggleBoardPin(id: board.id)
+                        }
+
+                        Button("Delete board", role: .destructive) {
+                            showingDeleteConfirmation = true
+                        }
                     } label: {
-                        Image(systemName: "xmark")
+                        Image(systemName: "ellipsis")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.44))
-                            .frame(width: 30, height: 30)
-                            .background(Color.white.opacity(0.04), in: Circle())
+                            .foregroundStyle(Color.white.opacity(0.4))
+                            .frame(width: 28, height: 28)
                     }
-                    .buttonStyle(.plain)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                 }
-                .padding(18)
-
-                if board.isExpanded {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.07))
-                            .frame(height: 1)
-
-                        let doneTasks = board.openTasks.filter {
-                            runMonitor.latestRun(for: $0.id)?.phase == .completed
-                        }
-                        let runningTasks = board.openTasks.filter {
-                            runMonitor.latestRun(for: $0.id)?.phase.isActive == true
-                        }
-                        let todoTasks = board.openTasks.filter {
-                            guard let phase = runMonitor.latestRun(for: $0.id)?.phase else { return true }
-                            return !phase.isActive && phase != .completed
-                        }
-
-                        TaskSectionHeader(
-                            title: "DONE",
-                            count: doneTasks.count,
-                            systemImage: "checkmark",
-                            tint: .green
-                        )
-
-                        TaskSectionSurface(isEmpty: doneTasks.isEmpty, emptyText: "Completed tasks will land here") {
-                            ForEach(doneTasks) { task in
-                                MinimalTaskRow(
-                                    board: board,
-                                    task: task,
-                                    isCopied: store.copiedTaskID == task.id,
-                                    onCopy: { store.copyTask(task) },
-                                    codexRun: runMonitor.latestRun(for: task.id),
-                                    onSendToCodex: { _ in },
-                                    onDone: {
-                                        store.selectedBoardID = board.id
-                                        store.markTaskDone(taskID: task.id, in: board.id)
-                                    },
-                                    onRename: { newTitle in
-                                        store.renameTask(taskID: task.id, in: board.id, title: newTitle)
-                                    },
-                                    onDragStart: {}
-                                )
-                            }
-                        }
-
-                        TaskSectionHeader(
-                            title: "RUNNING",
-                            count: runningTasks.count,
-                            systemImage: "waveform.path",
-                            tint: board.theme.accentColor
-                        )
-
-                        TaskSectionSurface(isEmpty: runningTasks.isEmpty, emptyText: "Nothing is running") {
-                            ForEach(runningTasks) { task in
-                                MinimalTaskRow(
-                                    board: board,
-                                    task: task,
-                                    isCopied: store.copiedTaskID == task.id,
-                                    onCopy: { store.copyTask(task) },
-                                    codexRun: runMonitor.latestRun(for: task.id),
-                                    onSendToCodex: { _ in },
-                                    onDone: {
-                                        store.markTaskDone(taskID: task.id, in: board.id)
-                                    },
-                                    onRename: { newTitle in
-                                        store.renameTask(taskID: task.id, in: board.id, title: newTitle)
-                                    },
-                                    onDragStart: {}
-                                )
-                            }
-                        }
-
-                        TaskSectionHeader(
-                            title: "TODO",
-                            count: todoTasks.count,
-                            systemImage: "circle",
-                            tint: Color.white.opacity(0.48)
-                        )
-
-                        TaskSectionSurface(isEmpty: todoTasks.isEmpty, emptyText: "No tasks waiting") {
-                            ForEach(todoTasks) { task in
-                                MinimalTaskRow(
-                                    board: board,
-                                    task: task,
-                                    isCopied: store.copiedTaskID == task.id,
-                                    onCopy: {
-                                        store.selectedBoardID = board.id
-                                        store.copyTask(task)
-                                    },
-                                    codexRun: runMonitor.latestRun(for: task.id),
-                                    onSendToCodex: { taskID in
-                                        sendDirectlyToCodex(taskID: taskID, boardID: board.id)
-                                    },
-                                    onDone: {
-                                        store.selectedBoardID = board.id
-                                        store.markTaskDone(taskID: task.id, in: board.id)
-                                    },
-                                    onRename: { newTitle in
-                                        store.selectedBoardID = board.id
-                                        store.renameTask(taskID: task.id, in: board.id, title: newTitle)
-                                    },
-                                    onDragStart: {
-                                        draggedTaskID = task.id
-                                        store.selectedBoardID = board.id
-                                    }
-                                )
-                                .onDrop(
-                                    of: [UTType.text],
-                                    delegate: TaskReorderDropDelegate(
-                                        store: store,
-                                        boardID: board.id,
-                                        targetTaskID: task.id,
-                                        draggedTaskID: $draggedTaskID
-                                    )
-                                )
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-                        }
-
-                        InlineTaskEntryRow(
-                            board: board,
-                            taskTitle: $inlineTaskTitle,
-                            attachments: $inlineTaskAttachments,
-                            isAdding: $isAddingInlineTask,
-                            isFocused: $isInlineTaskFocused,
-                            onBegin: beginInlineEntry,
-                            onSubmit: submitInlineTask,
-                            onCancel: cancelInlineEntry
-                        )
-                        .padding(.horizontal, 18)
-                        .padding(.top, 10)
-                        .padding(.bottom, 18)
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(.top, 13)
+                .padding(.bottom, 13)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.055))
+                        .frame(height: 1)
                 }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color(hex: "0E1116"))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+
+                let doneTasks = tasks(in: .done, for: board)
+                let runningTasks = tasks(in: .running, for: board)
+                let todoTasks = tasks(in: .todo, for: board)
+
+                TaskLaneDropZone(
+                    tint: .green,
+                    isTargeted: laneTargetBinding(for: .done),
+                    onDrop: { performStatusDrop(to: .done) }
+                ) {
+                    TaskSectionHeader(
+                        title: "DONE",
+                        count: doneTasks.count,
+                        systemImage: "checkmark",
+                        tint: .green
                     )
-            )
-            .overlay(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(board.theme.accentColor.opacity(0.22), lineWidth: 1)
-                    .padding(1)
-            }
-            .shadow(color: .black.opacity(0.22), radius: 26, x: 0, y: 18)
-            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.isExpanded)
-            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.tasks)
-            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .onDrag {
-                draggedBoardID = board.id
-                store.selectedBoardID = board.id
-                return NSItemProvider(object: board.id.uuidString as NSString)
-            } preview: {
-                DragPreview()
-            }
-            .onDrop(
-                of: [UTType.text],
-                delegate: BoardReorderDropDelegate(
-                    store: store,
-                    targetBoardID: board.id,
-                    draggedBoardID: $draggedBoardID
+                    TaskSectionSurface(
+                        isEmpty: doneTasks.isEmpty,
+                        emptyText: emptyText(for: .done)
+                    ) {
+                        ForEach(doneTasks) { task in
+                            MinimalTaskRow(
+                                board: board,
+                                task: task,
+                                isCopied: store.copiedTaskID == task.id,
+                                onCopy: { store.copyTask(task) },
+                                codexRun: runMonitor.latestRun(for: task.id),
+                                onSendToCodex: { taskID in
+                                    sendDirectlyToCodex(taskID: taskID, boardID: board.id)
+                                },
+                                onDone: {
+                                    store.markTaskDone(taskID: task.id, in: board.id)
+                                },
+                                onRename: { newTitle in
+                                    store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                },
+                                onDragStart: { draggedTaskID = task.id }
+                            )
+                        }
+                    }
+                }
+
+                TaskLaneDropZone(
+                    tint: board.theme.accentColor,
+                    isTargeted: laneTargetBinding(for: .running),
+                    onDrop: { performStatusDrop(to: .running) }
+                ) {
+                    TaskSectionHeader(
+                        title: "RUNNING",
+                        count: runningTasks.count,
+                        systemImage: "waveform.path",
+                        tint: board.theme.accentColor
+                    )
+                    TaskSectionSurface(
+                        isEmpty: runningTasks.isEmpty,
+                        emptyText: emptyText(for: .running)
+                    ) {
+                        ForEach(runningTasks) { task in
+                            MinimalTaskRow(
+                                board: board,
+                                task: task,
+                                isCopied: store.copiedTaskID == task.id,
+                                onCopy: { store.copyTask(task) },
+                                codexRun: runMonitor.latestRun(for: task.id),
+                                onSendToCodex: { taskID in
+                                    sendDirectlyToCodex(taskID: taskID, boardID: board.id)
+                                },
+                                onDone: {
+                                    store.markTaskDone(taskID: task.id, in: board.id)
+                                },
+                                onRename: { newTitle in
+                                    store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                },
+                                onDragStart: { draggedTaskID = task.id }
+                            )
+                        }
+                    }
+                }
+
+                TaskLaneDropZone(
+                    tint: Color.white.opacity(0.48),
+                    isTargeted: laneTargetBinding(for: .todo),
+                    onDrop: { performStatusDrop(to: .todo) }
+                ) {
+                    TaskSectionHeader(
+                        title: "TODO",
+                        count: todoTasks.count,
+                        systemImage: "circle",
+                        tint: Color.white.opacity(0.48)
+                    )
+                    TaskSectionSurface(
+                        isEmpty: todoTasks.isEmpty,
+                        emptyText: emptyText(for: .todo)
+                    ) {
+                        ForEach(todoTasks) { task in
+                            MinimalTaskRow(
+                                board: board,
+                                task: task,
+                                isCopied: store.copiedTaskID == task.id,
+                                onCopy: { store.copyTask(task) },
+                                codexRun: runMonitor.latestRun(for: task.id),
+                                onSendToCodex: { taskID in
+                                    sendDirectlyToCodex(taskID: taskID, boardID: board.id)
+                                },
+                                onDone: {
+                                    store.markTaskDone(taskID: task.id, in: board.id)
+                                },
+                                onRename: { newTitle in
+                                    store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                },
+                                onDragStart: { draggedTaskID = task.id }
+                            )
+                            .onDrop(
+                                of: [UTType.taskboardTask],
+                                delegate: TaskReorderDropDelegate(
+                                    store: store,
+                                    boardID: board.id,
+                                    targetTaskID: task.id,
+                                    draggedTaskID: $draggedTaskID
+                                )
+                            )
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                }
+
+                InlineTaskEntryRow(
+                    board: board,
+                    taskTitle: $inlineTaskTitle,
+                    attachments: $inlineTaskAttachments,
+                    isAdding: $isAddingInlineTask,
+                    isFocused: $isInlineTaskFocused,
+                    onBegin: beginInlineEntry,
+                    onSubmit: submitInlineTask,
+                    onCancel: cancelInlineEntry
                 )
-            )
+                .padding(.top, 8)
+                .padding(.bottom, 10)
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.tasks)
             .alert("Delete board?", isPresented: $showingDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     store.deleteBoard(id: board.id)
@@ -585,6 +801,54 @@ private struct BoardColumnView: View {
                     isAddingInlineTask = false
                 }
             }
+        }
+    }
+
+    private func tasks(in lane: TaskStatus, for board: TaskBoard) -> [TaskItem] {
+        board.openTasks.filter { task in
+            if let statusOverride = task.statusOverride {
+                return statusOverride == lane
+            }
+
+            let phase = runMonitor.latestRun(for: task.id)?.phase
+            switch lane {
+            case .done:
+                return phase == .completed
+            case .running:
+                return phase?.isActive == true
+            case .todo:
+                guard let phase else { return true }
+                return !phase.isActive && phase != .completed
+            }
+        }
+    }
+
+    private func laneTargetBinding(for status: TaskStatus) -> Binding<Bool> {
+        Binding(
+            get: { targetedStatus == status },
+            set: { isTargeted in
+                if isTargeted {
+                    targetedStatus = status
+                } else if targetedStatus == status {
+                    targetedStatus = nil
+                }
+            }
+        )
+    }
+
+    private func performStatusDrop(to status: TaskStatus) -> Bool {
+        guard let draggedTaskID else { return false }
+        store.moveTask(taskID: draggedTaskID, in: boardID, to: status)
+        self.draggedTaskID = nil
+        targetedStatus = nil
+        return true
+    }
+
+    private func emptyText(for lane: TaskStatus) -> String {
+        switch lane {
+        case .todo: "Nothing waiting. You’re clear."
+        case .running: "No tasks are running right now."
+        case .done: "Drop finished tasks here."
         }
     }
 
@@ -646,6 +910,7 @@ private struct BoardColumnView: View {
 
         let prompt = task.title
         directSendError = nil
+        store.clearTaskStatusOverride(taskIDs: [taskID], in: boardID)
         let runID = runMonitor.start(
             boardID: boardID,
             taskID: taskID,
@@ -684,7 +949,7 @@ private struct TaskSectionHeader: View {
     let tint: Color
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(tint)
@@ -701,9 +966,8 @@ private struct TaskSectionHeader: View {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(count == 0 ? Color.white.opacity(0.24) : tint)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 8)
+        .padding(.top, 18)
+        .padding(.bottom, 7)
     }
 }
 
@@ -716,24 +980,43 @@ private struct TaskSectionSurface<Content: View>: View {
         Group {
             if isEmpty {
                 Text(emptyText)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.28))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.25))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                    .padding(.leading, 26)
+                    .padding(.vertical, 9)
             } else {
                 VStack(spacing: 0) {
                     content
                 }
             }
         }
-        .background(Color.white.opacity(0.026), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.055), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(.horizontal, 18)
+    }
+}
+
+private struct TaskLaneDropZone<Content: View>: View {
+    let tint: Color
+    @Binding var isTargeted: Bool
+    let onDrop: () -> Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(isTargeted ? tint.opacity(0.065) : Color.clear)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(tint)
+                .frame(width: 2)
+                .opacity(isTargeted ? 1 : 0)
+        }
+        .animation(.easeOut(duration: 0.14), value: isTargeted)
+        .onDrop(of: [UTType.taskboardTask], isTargeted: $isTargeted) { _ in
+            onDrop()
+        }
     }
 }
 
@@ -752,8 +1035,9 @@ private struct InlineTaskEntryRow: View {
             if isAdding {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "circle")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(Color.white.opacity(0.28))
+                        .frame(width: 14)
                         .padding(.top, 10)
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -810,19 +1094,19 @@ private struct InlineTaskEntryRow: View {
                     .buttonStyle(.plain)
                     .padding(.top, 8)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.07), lineWidth: 1)
-                )
+                .padding(.vertical, 10)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.055))
+                        .frame(height: 1)
+                }
             } else {
                 Button(action: onBegin) {
                     HStack(spacing: 12) {
                         Image(systemName: "plus")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(Color.white.opacity(0.36))
+                            .frame(width: 14)
 
                         Text("Click to add a task")
                             .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -830,12 +1114,15 @@ private struct InlineTaskEntryRow: View {
 
                         Spacer()
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.045))
+                        .frame(height: 1)
+                }
             }
         }
     }
@@ -863,38 +1150,37 @@ private struct MinimalTaskRow: View {
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Button(action: onDone) {
                 Image(systemName: "checkmark.circle")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(Color.white.opacity(0.48))
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color.white.opacity(0.4))
             }
             .buttonStyle(.plain)
             .help("Mark done")
-            .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 8) {
                 Group {
                     if isEditingTitle {
                     TextField("Task title", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.96))
                         .focused($isTitleFocused)
                         .lineLimit(2...10)
                         .onExitCommand(perform: cancelTitleEdit)
                     } else {
-                    Button(action: beginTitleEdit) {
-                        Text(task.title)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .lineLimit(nil)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                    Text(task.title)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(nil)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2, perform: beginTitleEdit)
+                        .help("Double-click to edit · Drag to change status or copy text")
+                        .accessibilityAddTraits(.isButton)
                     }
                 }
 
@@ -904,47 +1190,56 @@ private struct MinimalTaskRow: View {
 
             Spacer(minLength: 10)
 
-            Button(action: codexButtonAction) {
-                HStack(spacing: 5) {
-                    Image(systemName: codexRun?.phase.systemImage ?? "paperplane.fill")
-                        .symbolEffect(.pulse, isActive: codexRun?.phase.isActive == true)
-                    if codexRun != nil {
-                        Text(codexButtonTitle)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    }
-                }
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(codexStatusColor)
-                .padding(.horizontal, codexRun == nil ? 9 : 8)
-                .frame(height: 28)
-                .background(codexStatusColor.opacity(0.1), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(codexRun?.phase.isActive == true)
-            .help(codexHelpText)
-
             Button(action: onCopy) {
-                Text(isCopied ? "COPIED" : "COPY")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(isCopied ? .black : board.theme.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(isCopied ? Color.black : board.theme.accentColor)
+                    .frame(width: 26, height: 26)
                     .background(
-                        isCopied ? board.theme.accentColor : board.theme.accentColor.opacity(0.12),
-                        in: Capsule()
+                        isCopied ? board.theme.accentColor : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8)
                     )
             }
             .buttonStyle(.plain)
-            .padding(.top, 2)
+            .help(isCopied ? "Copied" : "Copy task")
+
+            Menu {
+                Button(action: codexButtonAction) {
+                    Label(codexMenuTitle, systemImage: codexMenuImage)
+                }
+                .disabled(codexRun?.phase.isActive == true)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(codexRun == nil ? Color.white.opacity(0.34) : codexStatusColor)
+                    .frame(width: 26, height: 26)
+                    .overlay(alignment: .topTrailing) {
+                        if codexRun != nil {
+                            Circle()
+                                .fill(codexStatusColor)
+                                .frame(width: 4, height: 4)
+                                .symbolEffect(.pulse, isActive: codexRun?.phase.isActive == true)
+                        }
+                    }
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(codexHelpText)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.045))
+                .frame(height: 1)
+                .padding(.leading, 26)
+        }
         .onDrag {
             onDragStart()
-            return NSItemProvider(object: task.id.uuidString as NSString)
+            return taskDragProvider()
         } preview: {
-            DragPreview()
+            TaskDragPreview(title: task.title, accentColor: board.theme.accentColor)
         }
         .onAppear {
             draftTitle = task.title
@@ -970,6 +1265,18 @@ private struct MinimalTaskRow: View {
         }
     }
 
+    private func taskDragProvider() -> NSItemProvider {
+        let provider = NSItemProvider(object: task.title as NSString)
+        provider.registerDataRepresentation(
+            forTypeIdentifier: UTType.taskboardTask.identifier,
+            visibility: .ownProcess
+        ) { completion in
+            completion(task.id.uuidString.data(using: .utf8), nil)
+            return nil
+        }
+        return provider
+    }
+
     private var codexHelpText: String {
         guard let codexRun else { return "Send directly to Codex on main" }
         if let error = codexRun.errorMessage {
@@ -981,8 +1288,22 @@ private struct MinimalTaskRow: View {
         return codexRun.phase.title
     }
 
-    private var codexButtonTitle: String {
-        codexRun?.phase == .completed ? "VIEW THREAD" : (codexRun?.phase.title.uppercased() ?? "")
+    private var codexMenuTitle: String {
+        guard let phase = codexRun?.phase else { return "Send to Codex" }
+        return switch phase {
+        case .completed: "Open Codex Thread"
+        case .failed: "Retry in Codex"
+        default: phase.title
+        }
+    }
+
+    private var codexMenuImage: String {
+        guard let phase = codexRun?.phase else { return "paperplane" }
+        return switch phase {
+        case .completed: "arrow.up.right.square"
+        case .failed: "arrow.clockwise"
+        default: phase.systemImage
+        }
     }
 
     private func codexButtonAction() {
@@ -1135,6 +1456,7 @@ private struct TaskReorderDropDelegate: DropDelegate {
             return
         }
 
+        store.moveTask(taskID: draggedTaskID, in: boardID, to: .todo)
         store.moveOpenTask(draggedID: draggedTaskID, in: boardID, to: targetTaskID)
     }
 
@@ -1154,6 +1476,38 @@ private struct DragPreview: View {
     var body: some View {
         Color.clear
             .frame(width: 1, height: 1)
+    }
+}
+
+private struct TaskDragPreview: View {
+    let title: String
+    let accentColor: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "text.page")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(accentColor)
+                .frame(width: 18, height: 18)
+
+            Text(title)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.92))
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .frame(width: 250)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(hex: "15191F"))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(accentColor.opacity(0.28), lineWidth: 1)
+                }
+        )
+        .shadow(color: .black.opacity(0.3), radius: 14, x: 0, y: 8)
     }
 }
 

@@ -6,6 +6,50 @@ enum SceneID {
     static let quickCaptureWindow = "quick-capture-window"
 }
 
+enum WindowPreferences {
+    static let openMainWindowInCurrentSpaceDefaultsKey = "openMainWindowInCurrentSpace"
+    static let openMainWindowInCurrentSpaceDefaultValue = true
+
+    static var opensMainWindowInCurrentSpace: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: openMainWindowInCurrentSpaceDefaultsKey) != nil else {
+            return openMainWindowInCurrentSpaceDefaultValue
+        }
+        return defaults.bool(forKey: openMainWindowInCurrentSpaceDefaultsKey)
+    }
+}
+
+@MainActor
+enum MainWindowSpaceBehavior {
+    static func apply(to window: NSWindow, enabled: Bool = WindowPreferences.opensMainWindowInCurrentSpace) {
+        var behavior = window.collectionBehavior
+        behavior.remove(.canJoinAllSpaces)
+
+        if enabled {
+            behavior.insert(.moveToActiveSpace)
+        } else {
+            behavior.remove(.moveToActiveSpace)
+        }
+
+        window.collectionBehavior = behavior
+    }
+
+    static func mainWindow(in application: NSApplication = NSApp) -> NSWindow? {
+        application.windows.first(where: { $0.identifier?.rawValue == SceneID.mainWindow })
+    }
+
+    static func bringToCurrentSpace(_ window: NSWindow, in application: NSApplication = NSApp) {
+        apply(to: window, enabled: true)
+
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        application.activate(ignoringOtherApps: true)
+    }
+}
+
 @main
 struct TaskBoardApp: App {
     @NSApplicationDelegateAdaptor(TaskBoardApplicationDelegate.self) private var appDelegate
@@ -14,13 +58,15 @@ struct TaskBoardApp: App {
     var body: some Scene {
         Window("taskboard", id: SceneID.mainWindow) {
             MainWindowView(store: store)
-                .frame(minWidth: 980, minHeight: 680)
+                .frame(minWidth: 360, minHeight: 520)
                 .preferredColorScheme(.dark)
                 .task {
                     QuickCaptureController.shared.configure(store: store)
                 }
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 390, height: 700)
+        .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
 
         Window("Quick Capture", id: SceneID.quickCaptureWindow) {
             QuickCaptureWindowView(controller: QuickCaptureController.shared)
@@ -53,7 +99,17 @@ final class TaskBoardApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        !QuickCaptureController.shared.suppressMainWindowReopen
+        guard !QuickCaptureController.shared.suppressMainWindowReopen else {
+            return false
+        }
+
+        guard WindowPreferences.opensMainWindowInCurrentSpace,
+              let mainWindow = MainWindowSpaceBehavior.mainWindow(in: sender) else {
+            return true
+        }
+
+        MainWindowSpaceBehavior.bringToCurrentSpace(mainWindow, in: sender)
+        return false
     }
 
     @MainActor

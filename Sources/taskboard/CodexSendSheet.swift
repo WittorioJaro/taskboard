@@ -317,6 +317,7 @@ struct CodexSendSheet: View {
         errorMessage = nil
         receipt = nil
         dispatchStatus = .init(.waiting, totalCount: tasks.count)
+        store.clearTaskStatusOverride(taskIDs: tasks.map(\.id), in: board.id)
         let runID = runMonitor.start(
             boardID: board.id,
             taskID: nil,

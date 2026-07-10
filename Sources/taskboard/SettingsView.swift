@@ -4,7 +4,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var quickCaptureController = QuickCaptureController.shared
-    @AppStorage("boardColumnCount") private var boardColumnCount = 3
+    @AppStorage(WindowPreferences.openMainWindowInCurrentSpaceDefaultsKey)
+    private var openMainWindowInCurrentSpace = WindowPreferences.openMainWindowInCurrentSpaceDefaultValue
     @AppStorage(QuickCapturePreferences.closeAfterSubmitDefaultsKey)
     private var quickCaptureCloseAfterSubmit = QuickCapturePreferences.closeAfterSubmitDefaultValue
     @AppStorage(QuickCaptureShortcut.keyCodeDefaultsKey) private var quickCaptureKeyCode = Int(QuickCaptureShortcut.defaultShortcut.keyCode)
@@ -21,32 +22,24 @@ struct SettingsView: View {
                     .foregroundStyle(.white)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Board Layout")
+                    Text("Window")
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.48))
                         .textCase(.uppercase)
 
                     VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Horizontal lists")
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
-                                .foregroundStyle(.white)
+                        Toggle(isOn: $openMainWindowInCurrentSpace) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Open on current desktop")
+                                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white)
 
-                            Spacer()
-
-                            Text("\(boardColumnCount)")
-                                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.72))
+                                Text("Clicking the Dock icon brings taskboard to the desktop you're using instead of switching Spaces.")
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundStyle(Color.white.opacity(0.46))
+                            }
                         }
-
-                        Stepper(value: $boardColumnCount, in: 1...5) {
-                            EmptyView()
-                        }
-                        .labelsHidden()
-
-                        Text("Choose how many boards appear side by side in the main window.")
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.46))
+                        .toggleStyle(.switch)
                     }
                     .padding(18)
                     .background(
