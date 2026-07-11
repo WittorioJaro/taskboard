@@ -96,9 +96,16 @@ final class SupabaseSyncService {
     private let baseURL: URL
     private let anonKey: String
     private var session: SupabaseAuthSession
-    private var pendingSave: Task<Void, Never>?
+    private var debounceTask: Task<Void, Never>?
+    private var queuedSnapshot: TaskBoardSnapshot?
+    private var queuedCompletion: (@MainActor (Result<Void, Error>) -> Void)?
+    private var isSaving = false
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+
+    var hasPendingSave: Bool {
+        debounceTask != nil || queuedSnapshot != nil || isSaving
+    }
 
     init?() {
         let defaults = UserDefaults.standard
@@ -171,18 +178,45 @@ final class SupabaseSyncService {
         snapshot: TaskBoardSnapshot,
         completion: @escaping @MainActor (Result<Void, Error>) -> Void
     ) {
-        pendingSave?.cancel()
-        pendingSave = Task { [weak self] in
+        queuedSnapshot = snapshot
+        queuedCompletion = completion
+        debounceTask?.cancel()
+        debounceTask = Task { [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(650))
                 guard !Task.isCancelled, let self else { return }
-                try await self.save(snapshot: snapshot)
-                completion(.success(()))
+                self.debounceTask = nil
+                await self.flushSaveQueue()
             } catch is CancellationError {
                 return
             } catch {
-                completion(.failure(error))
+                return
             }
+        }
+    }
+
+    private func flushSaveQueue() async {
+        guard !isSaving, let snapshot = queuedSnapshot else { return }
+        let completion = queuedCompletion
+        queuedSnapshot = nil
+        queuedCompletion = nil
+        isSaving = true
+
+        do {
+            try await save(snapshot: snapshot)
+            isSaving = false
+            completion?(.success(()))
+        } catch {
+            isSaving = false
+            completion?(.failure(error))
+        }
+
+        // Never overlap writes. If another edit arrived while the request was
+        // in flight, persist that newer snapshot only after this one finishes.
+        if queuedSnapshot != nil {
+            debounceTask?.cancel()
+            debounceTask = nil
+            await flushSaveQueue()
         }
     }
 

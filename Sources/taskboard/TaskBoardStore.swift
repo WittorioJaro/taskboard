@@ -409,15 +409,20 @@ final class TaskBoardStore {
                 try await supabaseSync.save(snapshot: currentSnapshot)
             }
             syncStatus = .synced
-            beginSupabasePolling()
         } catch {
             syncStatus = .error(error.localizedDescription)
         }
+        // Poll even if the initial sync failed, so a launch-time network
+        // hiccup or token refresh doesn't kill sync for the whole session.
+        beginSupabasePolling()
     }
 
     private func refreshFromSupabase(_ service: SupabaseSyncService) async {
+        guard !service.hasPendingSave else { return }
         do {
-            if let remoteSnapshot = try await service.fetchSnapshot(), remoteSnapshot != currentSnapshot {
+            if let remoteSnapshot = try await service.fetchSnapshot(),
+               remoteSnapshot != currentSnapshot,
+               !service.hasPendingSave {
                 apply(remoteSnapshot)
             }
             syncStatus = .synced

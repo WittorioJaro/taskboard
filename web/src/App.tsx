@@ -101,6 +101,10 @@ function App() {
     return lanes;
   }, [selectedBoard.tasks]);
 
+  const beginLocalMutation = useCallback(() => {
+    syncRef.current?.beginLocalMutation();
+  }, []);
+
   useEffect(() => {
     saveSnapshot(snapshot);
     if (didInitializeSync.current) syncRef.current?.scheduleSave(snapshot);
@@ -159,13 +163,14 @@ function App() {
   }, [connectionVersion]);
 
   const updateSelectedBoard = useCallback((mutate: (board: TaskBoard) => TaskBoard) => {
+    beginLocalMutation();
     setSnapshot((current) => ({
       ...current,
       boards: current.boards.map((board) =>
         board.id === (current.selectedBoardID ?? current.boards[0]?.id) ? mutate(board) : board,
       ),
     }));
-  }, []);
+  }, [beginLocalMutation]);
 
   const addTask = useCallback(() => {
     const title = quickTitle.trim();
@@ -217,6 +222,7 @@ function App() {
     const task = board?.tasks.find((candidate) => candidate.id === taskID);
     if (!boardID || !task) return;
 
+    beginLocalMutation();
     armUndo({ boardID, task });
     setSnapshot((current) => ({
       ...current,
@@ -230,12 +236,13 @@ function App() {
         : candidate),
     }));
     navigator.vibrate?.([15, 35, 15]);
-  }, [armUndo, snapshot]);
+  }, [armUndo, beginLocalMutation, snapshot]);
 
   const undoArchive = useCallback(() => {
     if (!pendingUndo) return;
     if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
     const archived = pendingUndo;
+    beginLocalMutation();
     setSnapshot((current) => ({
       ...current,
       boards: current.boards.map((board) => board.id === archived.boardID
@@ -248,7 +255,7 @@ function App() {
     setPendingUndo(null);
     undoTimerRef.current = null;
     navigator.vibrate?.(12);
-  }, [pendingUndo]);
+  }, [beginLocalMutation, pendingUndo]);
 
   const renameTask = useCallback(
     (taskID: string, rawTitle: string) => {
@@ -269,6 +276,7 @@ function App() {
     const boardID = crypto.randomUUID();
     const usedThemes = new Set(snapshot.boards.map((board) => board.themeID));
     const nextTheme = themes.find((candidate) => !usedThemes.has(candidate.id)) ?? themes[snapshot.boards.length % themes.length];
+    beginLocalMutation();
     setSnapshot((current) => ({
       selectedBoardID: boardID,
       boards: [
@@ -330,7 +338,10 @@ function App() {
             <button
               className={`board-tab ${selected ? "selected" : ""}`}
               key={board.id}
-              onClick={() => setSnapshot((current) => ({ ...current, selectedBoardID: board.id }))}
+              onClick={() => {
+                beginLocalMutation();
+                setSnapshot((current) => ({ ...current, selectedBoardID: board.id }));
+              }}
             >
               <span className="board-dot" style={{ background: boardTheme.accent }} />
               <span>{board.title}</span>
@@ -401,6 +412,7 @@ function App() {
             setConnectionVersion((version) => version + 1);
           }}
           onImport={(imported) => {
+            beginLocalMutation();
             setSnapshot(imported);
             setShowConnection(false);
           }}
