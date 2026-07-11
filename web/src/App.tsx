@@ -1,7 +1,7 @@
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useDraggable,
   useDroppable,
@@ -49,9 +49,33 @@ function App() {
   const theme = themeFor(selectedBoard?.themeID ?? "cobalt");
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 7 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 7 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 450, tolerance: 12 } }),
   );
+
+  const openTaskCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const board of snapshot.boards) {
+      let count = 0;
+      for (const task of board.tasks) {
+        if (!task.isCompleted) count += 1;
+      }
+      counts.set(board.id, count);
+    }
+    return counts;
+  }, [snapshot.boards]);
+
+  const tasksByLane = useMemo<Record<TaskStatus, TaskItem[]>>(() => {
+    const lanes: Record<TaskStatus, TaskItem[]> = { done: [], running: [], todo: [] };
+    for (const task of selectedBoard.tasks) {
+      if (task.isCompleted) continue;
+      const status = task.statusOverride === "running" || task.statusOverride === "done"
+        ? task.statusOverride
+        : "todo";
+      lanes[status].push(task);
+    }
+    return lanes;
+  }, [selectedBoard.tasks]);
 
   useEffect(() => {
     saveSnapshot(snapshot);
@@ -226,7 +250,7 @@ function App() {
       <nav className="board-strip" aria-label="Boards">
         {snapshot.boards.map((board) => {
           const boardTheme = themeFor(board.themeID);
-          const count = board.tasks.filter((task) => !task.isCompleted).length;
+          const count = openTaskCounts.get(board.id) ?? 0;
           const selected = board.id === selectedBoard.id;
           return (
             <button
@@ -257,22 +281,20 @@ function App() {
 
       <DndContext
         sensors={sensors}
-        onDragStart={({ active }: DragStartEvent) => setActiveTaskID(String(active.id))}
+        onDragStart={({ active }: DragStartEvent) => {
+          navigator.vibrate?.(16);
+          setActiveTaskID(String(active.id));
+        }}
         onDragCancel={() => setActiveTaskID(null)}
         onDragEnd={handleDragEnd}
       >
         <section className="lanes">
           {laneOrder.map((status) => {
-            const tasks = selectedBoard.tasks.filter((task) => {
-              if (task.isCompleted) return false;
-              if (status === "todo") return !task.statusOverride || task.statusOverride === "todo";
-              return task.statusOverride === status;
-            });
             return (
               <Lane
                 key={status}
                 status={status}
-                tasks={tasks}
+                tasks={tasksByLane[status]}
                 onComplete={completeTask}
                 onRename={renameTask}
               />
@@ -353,10 +375,16 @@ const TaskCard = memo(function TaskCard({
   onComplete: (id: string) => void;
   onRename: (task: TaskItem) => void;
 }) {
-  const { listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   return (
-    <article ref={setNodeRef} className={`task-card ${isDragging ? "dragging" : ""}`} style={style} {...listeners}>
+    <article
+      ref={setNodeRef}
+      className={`task-card ${isDragging ? "dragging" : ""}`}
+      style={style}
+      {...attributes}
+      {...listeners}
+    >
       <button
         className="complete-button"
         aria-label="Archive task"

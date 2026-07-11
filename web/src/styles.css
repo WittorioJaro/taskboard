@@ -11,15 +11,22 @@
 
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; background: #080a0e; }
+html { overflow-x: hidden; }
+body {
+  overflow-x: hidden;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 button, input { font: inherit; }
 button { color: inherit; }
 
 .app-shell {
   position: relative;
   min-height: 100dvh;
-  overflow: hidden;
+  overflow: visible;
   padding: calc(env(safe-area-inset-top) + 18px) 18px calc(env(safe-area-inset-bottom) + 38px);
   background: radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34rem), #080a0e;
+  touch-action: pan-y;
 }
 
 .aurora {
@@ -62,11 +69,30 @@ button { color: inherit; }
 .lane-header .lane-icon { color: var(--lane); font-size: 16px; }
 .lane-header b { font-family: "Roboto Mono", monospace; color: rgba(255,255,255,.27); font-size: 10px; }
 .lane-header em { margin-left: auto; color: var(--lane); font-size: 8px; font-style: normal; }
-.lane-content { display: grid; gap: 8px; min-height: 50px; padding: 2px 0; content-visibility: auto; }
+.lane-content { display: grid; gap: 8px; min-height: 50px; padding: 2px 0; }
 .empty-lane { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 58px; color: rgba(255,255,255,.24); font-size: 12px; font-weight: 700; }
 
-.task-card { display: flex; align-items: center; gap: 13px; min-height: 70px; padding: 15px; border-radius: 17px; border: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.055); touch-action: none; user-select: none; box-shadow: 0 8px 28px rgba(0,0,0,.08); }
-.task-card.dragging { opacity: .12; }
+.task-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 70px;
+  padding: 15px;
+  border-radius: 17px;
+  border: 1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.055);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 70px;
+  contain: layout paint style;
+  box-shadow: 0 5px 18px rgba(0,0,0,.07);
+  transition: background-color .14s ease, border-color .14s ease, opacity .14s ease;
+}
+.task-card:active { background: rgba(255,255,255,.075); }
+.task-card.dragging { opacity: .12; cursor: grabbing; }
 .complete-button { flex: none; width: 23px; height: 23px; border-radius: 50%; border: 3px solid color-mix(in srgb, var(--lane) 76%, transparent); background: transparent; }
 .task-title { flex: 1; text-align: left; border: 0; padding: 0; background: transparent; color: rgba(255,255,255,.9); font-size: 16px; font-weight: 800; line-height: 1.35; }
 .bolt { color: #ff9d00; font-size: 18px; }
