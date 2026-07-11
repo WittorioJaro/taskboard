@@ -30,6 +30,8 @@ const laneMeta: Record<TaskStatus, { label: string; icon: string; empty: string;
   todo: { label: "TODO", icon: "○", empty: "Nothing waiting", color: "#a6a9b0" },
 };
 
+type ArchivedTask = { boardID: string; task: TaskItem };
+
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>(loadSnapshot);
   const [syncState, setSyncState] = useState<SyncState>("offline");
@@ -40,8 +42,12 @@ function App() {
   const [quickTitle, setQuickTitle] = useState("");
   const [activeTaskID, setActiveTaskID] = useState<string | null>(null);
   const [connectionVersion, setConnectionVersion] = useState(0);
+  const [pendingUndo, setPendingUndo] = useState<ArchivedTask | null>(null);
   const syncRef = useRef<SnapshotSync | null>(null);
   const didInitializeSync = useRef(false);
+  const undoTimerRef = useRef<number | null>(null);
+  const isDraggingRef = useRef(false);
+  const pendingRemoteRef = useRef<Snapshot | null>(null);
 
   const selectedBoard = useMemo(() => {
     return snapshot.boards.find((board) => board.id === snapshot.selectedBoardID) ?? snapshot.boards[0];
@@ -50,8 +56,26 @@ function App() {
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 450, tolerance: 12 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 8 } }),
   );
+
+  const applyRemote = useCallback((remote: Snapshot) => {
+    if (isDraggingRef.current) {
+      pendingRemoteRef.current = remote;
+      return;
+    }
+    setSnapshot((local) => (hasUserContent(local) && !hasUserContent(remote) ? local : remote));
+  }, []);
+
+  // Once a touch drag is active, block native scrolling for the rest of the
+  // gesture — touch-action can't be changed mid-gesture, so this listener is
+  // the only thing stopping the page from panning along with the card.
+  useEffect(() => {
+    if (!activeTaskID) return;
+    const blockScroll = (event: TouchEvent) => event.preventDefault();
+    window.addEventListener("touchmove", blockScroll, { passive: false });
+    return () => window.removeEventListener("touchmove", blockScroll);
+  }, [activeTaskID]);
 
   const openTaskCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -82,6 +106,10 @@ function App() {
     if (didInitializeSync.current) syncRef.current?.scheduleSave(snapshot);
   }, [snapshot]);
 
+  useEffect(() => () => {
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const config = loadConfig();
@@ -105,9 +133,7 @@ function App() {
       const sync = new SnapshotSync(
         client,
         user.id,
-        (remote) => {
-          setSnapshot((local) => (hasUserContent(local) && !hasUserContent(remote) ? local : remote));
-        },
+        applyRemote,
         (state, detail) => {
           setSyncState(state);
           setSyncDetail(detail ?? "");
@@ -176,28 +202,63 @@ function App() {
     [updateSelectedBoard],
   );
 
-  const completeTask = useCallback(
-    (taskID: string) => {
-      updateSelectedBoard((board) => ({
-        ...board,
-        tasks: board.tasks.map((task) =>
-          task.id === taskID
-            ? { ...task, isCompleted: true, statusOverride: null, completedAt: appleReferenceSeconds() }
-            : task,
-        ),
-      }));
-      navigator.vibrate?.([15, 35, 15]);
-    },
-    [updateSelectedBoard],
-  );
+  const armUndo = useCallback((archived: ArchivedTask) => {
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+    setPendingUndo(archived);
+    undoTimerRef.current = window.setTimeout(() => {
+      setPendingUndo(null);
+      undoTimerRef.current = null;
+    }, 6000);
+  }, []);
+
+  const completeTask = useCallback((taskID: string) => {
+    const boardID = snapshot.selectedBoardID ?? snapshot.boards[0]?.id;
+    const board = snapshot.boards.find((candidate) => candidate.id === boardID);
+    const task = board?.tasks.find((candidate) => candidate.id === taskID);
+    if (!boardID || !task) return;
+
+    armUndo({ boardID, task });
+    setSnapshot((current) => ({
+      ...current,
+      boards: current.boards.map((candidate) => candidate.id === boardID
+        ? {
+            ...candidate,
+            tasks: candidate.tasks.map((item) => item.id === taskID
+              ? { ...item, isCompleted: true, statusOverride: null, completedAt: appleReferenceSeconds() }
+              : item),
+          }
+        : candidate),
+    }));
+    navigator.vibrate?.([15, 35, 15]);
+  }, [armUndo, snapshot]);
+
+  const undoArchive = useCallback(() => {
+    if (!pendingUndo) return;
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+    const archived = pendingUndo;
+    setSnapshot((current) => ({
+      ...current,
+      boards: current.boards.map((board) => board.id === archived.boardID
+        ? {
+            ...board,
+            tasks: board.tasks.map((task) => task.id === archived.task.id ? archived.task : task),
+          }
+        : board),
+    }));
+    setPendingUndo(null);
+    undoTimerRef.current = null;
+    navigator.vibrate?.(12);
+  }, [pendingUndo]);
 
   const renameTask = useCallback(
-    (task: TaskItem) => {
-      const title = window.prompt("Rename task", task.title)?.trim();
-      if (!title || title === task.title) return;
+    (taskID: string, rawTitle: string) => {
+      const title = rawTitle.trim();
+      if (!title) return;
       updateSelectedBoard((board) => ({
         ...board,
-        tasks: board.tasks.map((candidate) => (candidate.id === task.id ? { ...candidate, title } : candidate)),
+        tasks: board.tasks.map((candidate) =>
+          candidate.id === taskID && candidate.title !== title ? { ...candidate, title } : candidate,
+        ),
       }));
     },
     [updateSelectedBoard],
@@ -228,9 +289,22 @@ function App() {
     setShowNewBoard(false);
   };
 
+  const flushPendingRemote = () => {
+    const remote = pendingRemoteRef.current;
+    pendingRemoteRef.current = null;
+    if (remote) applyRemote(remote);
+  };
+
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveTaskID(null);
-    if (!over || typeof over.id !== "string" || !over.id.startsWith("lane:")) return;
+    isDraggingRef.current = false;
+    if (!over || typeof over.id !== "string" || !over.id.startsWith("lane:")) {
+      flushPendingRemote();
+      return;
+    }
+    // The drop is the newest edit; discard any remote snapshot that arrived
+    // mid-drag so it can't revert the move (our save will overwrite it).
+    pendingRemoteRef.current = null;
     moveTask(String(active.id), over.id.slice(5) as TaskStatus);
   };
 
@@ -283,9 +357,14 @@ function App() {
         sensors={sensors}
         onDragStart={({ active }: DragStartEvent) => {
           navigator.vibrate?.(16);
+          isDraggingRef.current = true;
           setActiveTaskID(String(active.id));
         }}
-        onDragCancel={() => setActiveTaskID(null)}
+        onDragCancel={() => {
+          setActiveTaskID(null);
+          isDraggingRef.current = false;
+          flushPendingRemote();
+        }}
         onDragEnd={handleDragEnd}
       >
         <section className="lanes">
@@ -305,6 +384,13 @@ function App() {
           {activeTask ? <DragPreview task={activeTask} /> : null}
         </DragOverlay>
       </DndContext>
+
+      {pendingUndo ? (
+        <div className="undo-toast" role="status" aria-live="polite">
+          <span className="undo-message"><i aria-hidden="true">✓</i>Task archived</span>
+          <button type="button" onClick={undoArchive}>Undo</button>
+        </div>
+      ) : null}
 
       {showConnection ? (
         <ConnectionSheet
@@ -345,7 +431,7 @@ const Lane = memo(function Lane({
   status: TaskStatus;
   tasks: TaskItem[];
   onComplete: (id: string) => void;
-  onRename: (task: TaskItem) => void;
+  onRename: (taskID: string, title: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `lane:${status}` });
   const meta = laneMeta[status];
@@ -374,16 +460,27 @@ const TaskCard = memo(function TaskCard({
 }: {
   task: TaskItem;
   onComplete: (id: string) => void;
-  onRename: (task: TaskItem) => void;
+  onRename: (taskID: string, title: string) => void;
 }) {
   const { listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const cancelledRef = useRef(false);
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+
+  const commitRename = () => {
+    if (cancelledRef.current) return;
+    setIsEditing(false);
+    onRename(task.id, draft);
+  };
+
   return (
     <article
       ref={setNodeRef}
       className={`task-card ${isDragging ? "dragging" : ""}`}
       style={style}
       aria-label={`Task: ${task.title}. Long press to move.`}
+      onContextMenu={(event) => event.preventDefault()}
       {...listeners}
     >
       <button
@@ -392,14 +489,35 @@ const TaskCard = memo(function TaskCard({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => onComplete(task.id)}
       />
-      <button
-        className="task-title"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={() => onRename(task)}
-      >
-        {task.title}
-      </button>
-      {task.statusOverride === "running" ? <span className="bolt">⚡</span> : null}
+      {isEditing ? (
+        <input
+          className="task-title-input"
+          autoFocus
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onBlur={commitRename}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commitRename();
+            if (event.key === "Escape") {
+              cancelledRef.current = true;
+              setIsEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <button
+          className="task-title"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => {
+            cancelledRef.current = false;
+            setDraft(task.title);
+            setIsEditing(true);
+          }}
+        >
+          {task.title}
+        </button>
+      )}
     </article>
   );
 });
@@ -409,7 +527,6 @@ function DragPreview({ task }: { task: TaskItem }) {
     <div className="drag-preview">
       <span className="drag-preview-check" aria-hidden="true" />
       <span className="drag-preview-title">{task.title}</span>
-      {task.statusOverride === "running" ? <span className="bolt">⚡</span> : null}
     </div>
   );
 }
