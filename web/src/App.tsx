@@ -237,7 +237,7 @@ function App() {
   const activeTask = selectedBoard?.tasks.find((task) => task.id === activeTaskID);
 
   return (
-    <main className="app-shell" style={{ "--accent": theme.accent } as React.CSSProperties}>
+    <main className={`app-shell ${activeTaskID ? "is-dragging" : ""}`} style={{ "--accent": theme.accent } as React.CSSProperties}>
       <div className="aurora" aria-hidden="true" />
       <header className="app-header">
         <span className="wordmark">taskboard</span>
@@ -301,7 +301,9 @@ function App() {
             );
           })}
         </section>
-        <DragOverlay>{activeTask ? <DragPreview task={activeTask} /> : null}</DragOverlay>
+        <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" }}>
+          {activeTask ? <DragPreview task={activeTask} /> : null}
+        </DragOverlay>
       </DndContext>
 
       {showConnection ? (
@@ -353,7 +355,6 @@ const Lane = memo(function Lane({
         <span className="lane-icon">{meta.icon}</span>
         <span>{meta.label}</span>
         <b>{tasks.length}</b>
-        {isOver ? <em>DROP</em> : null}
       </header>
       <div className="lane-content">
         {tasks.length === 0 ? (
@@ -375,14 +376,14 @@ const TaskCard = memo(function TaskCard({
   onComplete: (id: string) => void;
   onRename: (task: TaskItem) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
+  const { listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   return (
     <article
       ref={setNodeRef}
       className={`task-card ${isDragging ? "dragging" : ""}`}
       style={style}
-      {...attributes}
+      aria-label={`Task: ${task.title}. Long press to move.`}
       {...listeners}
     >
       <button
@@ -404,7 +405,13 @@ const TaskCard = memo(function TaskCard({
 });
 
 function DragPreview({ task }: { task: TaskItem }) {
-  return <div className="drag-preview"><span />{task.title}</div>;
+  return (
+    <div className="drag-preview">
+      <span className="drag-preview-check" aria-hidden="true" />
+      <span className="drag-preview-title">{task.title}</span>
+      {task.statusOverride === "running" ? <span className="bolt">⚡</span> : null}
+    </div>
+  );
 }
 
 function ConnectionSheet({

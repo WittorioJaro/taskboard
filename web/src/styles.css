@@ -28,6 +28,7 @@ button { color: inherit; }
   background: radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34rem), #080a0e;
   touch-action: pan-y;
 }
+.app-shell.is-dragging { overscroll-behavior-y: contain; }
 
 .aurora {
   position: fixed;
@@ -63,12 +64,12 @@ button { color: inherit; }
 .quick-entry button:disabled { opacity: .25; }
 
 .lanes { display: grid; gap: 18px; margin-top: 22px; }
-.lane { --lane: #aaa; border-radius: 16px; transition: background .16s ease, box-shadow .16s ease; }
-.lane.targeted { background: color-mix(in srgb, var(--lane) 8%, transparent); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--lane) 65%, transparent); }
+.lane { --lane: #aaa; border-radius: 16px; transition: background-color .18s ease; }
+.lane.targeted { background: color-mix(in srgb, var(--lane) 5%, transparent); }
+.lane.targeted .lane-header { color: color-mix(in srgb, var(--lane) 76%, white); }
 .lane-header { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px; color: rgba(255,255,255,.62); font-size: 11px; font-weight: 900; letter-spacing: .02em; }
 .lane-header .lane-icon { color: var(--lane); font-size: 16px; }
 .lane-header b { font-family: "Roboto Mono", monospace; color: rgba(255,255,255,.27); font-size: 10px; }
-.lane-header em { margin-left: auto; color: var(--lane); font-size: 8px; font-style: normal; }
 .lane-content { display: grid; gap: 8px; min-height: 50px; padding: 2px 0; }
 .empty-lane { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 58px; color: rgba(255,255,255,.24); font-size: 12px; font-weight: 700; }
 
@@ -92,12 +93,36 @@ button { color: inherit; }
   transition: background-color .14s ease, border-color .14s ease, opacity .14s ease;
 }
 .task-card:active { background: rgba(255,255,255,.075); }
-.task-card.dragging { opacity: .12; cursor: grabbing; }
+.task-card.dragging { opacity: 0; cursor: grabbing; }
 .complete-button { flex: none; width: 23px; height: 23px; border-radius: 50%; border: 3px solid color-mix(in srgb, var(--lane) 76%, transparent); background: transparent; }
-.task-title { flex: 1; text-align: left; border: 0; padding: 0; background: transparent; color: rgba(255,255,255,.9); font-size: 16px; font-weight: 800; line-height: 1.35; }
+.task-title { flex: 1; text-align: left; border: 0; padding: 0; background: transparent; color: rgba(255,255,255,.9); font-size: 16px; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
 .bolt { color: #ff9d00; font-size: 18px; }
-.drag-preview { display: flex; align-items: center; gap: 9px; max-width: 300px; padding: 12px 15px; background: #171b22; border: 1px solid var(--accent); border-radius: 14px; color: white; font-size: 14px; font-weight: 800; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
-.drag-preview span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.drag-preview {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  min-height: 70px;
+  padding: 15px;
+  border-radius: 17px;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, white 8%);
+  background: #1a1e24;
+  color: rgba(255,255,255,.96);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.35;
+  box-shadow: 0 22px 52px rgba(0,0,0,.48), 0 0 0 .5px color-mix(in srgb, var(--accent) 55%, transparent);
+  transform: scale(1.012);
+  transform-origin: center;
+}
+.drag-preview-check {
+  flex: none;
+  width: 23px;
+  height: 23px;
+  border: 3px solid color-mix(in srgb, var(--accent) 76%, transparent);
+  border-radius: 50%;
+}
+.drag-preview-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
 .modal-backdrop { position: fixed; z-index: 30; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: 14px; background: rgba(0,0,0,.64); backdrop-filter: blur(12px); }
 .sheet { width: min(100%, 620px); max-height: 92dvh; overflow: auto; padding: 10px 22px calc(env(safe-area-inset-bottom) + 22px); border-radius: 26px 26px 20px 20px; background: #11151b; border: 1px solid rgba(255,255,255,.09); box-shadow: 0 -24px 80px rgba(0,0,0,.45); }
