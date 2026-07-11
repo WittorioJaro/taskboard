@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="taskboard"
+BUNDLE_IDENTIFIER="com.wiktorjarochiewicz.taskboard.macos"
 BUILD_DIR="$ROOT_DIR/.build"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
@@ -83,7 +84,17 @@ if [[ -n "${TASKBOARD_SIGNING_IDENTITY:-}" ]]; then
         --force \
         --options runtime \
         --sign "$TASKBOARD_SIGNING_IDENTITY" \
+        --identifier "$BUNDLE_IDENTIFIER" \
         --entitlements "$ROOT_DIR/macOS/taskboard.entitlements" \
+        "$APP_DIR"
+else
+    # SwiftPM ad-hoc signs the executable with the identifier "taskboard".
+    # Re-sign the bundle with its real identifier so UserDefaults keeps using
+    # the same preferences domain after the app is copied to /Applications.
+    codesign \
+        --force \
+        --sign - \
+        --identifier "$BUNDLE_IDENTIFIER" \
         "$APP_DIR"
 fi
 
