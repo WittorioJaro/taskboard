@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { hasUserContent, loadSnapshot, saveSnapshot } from "./storage";
 import {
   clearConfig,
@@ -478,7 +478,15 @@ const TaskCard = memo(function TaskCard({
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const cancelledRef = useRef(false);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+
+  useLayoutEffect(() => {
+    if (!isEditing || !editorRef.current) return;
+    const editor = editorRef.current;
+    editor.style.height = "0";
+    editor.style.height = `${editor.scrollHeight}px`;
+  }, [draft, isEditing]);
 
   const commitRename = () => {
     if (cancelledRef.current) return;
@@ -502,15 +510,20 @@ const TaskCard = memo(function TaskCard({
         onClick={() => onComplete(task.id)}
       />
       {isEditing ? (
-        <input
+        <textarea
+          ref={editorRef}
           className="task-title-input"
           autoFocus
+          rows={1}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onPointerDown={(event) => event.stopPropagation()}
           onBlur={commitRename}
           onKeyDown={(event) => {
-            if (event.key === "Enter") commitRename();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitRename();
+            }
             if (event.key === "Escape") {
               cancelledRef.current = true;
               setIsEditing(false);

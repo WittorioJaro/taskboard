@@ -17,7 +17,7 @@ body {
   overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { color: inherit; }
 
 .app-shell {
@@ -99,15 +99,23 @@ button { color: inherit; }
 .task-title { flex: 1; text-align: left; border: 0; padding: 0; background: transparent; color: rgba(255,255,255,.9); font-size: 16px; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
 .task-title-input {
   flex: 1;
+  display: block;
+  width: 100%;
   min-width: 0;
+  min-height: 1.35em;
+  overflow: hidden;
+  resize: none;
   border: 0;
   outline: 0;
+  margin: 0;
   padding: 0 0 2px;
   background: transparent;
   color: white;
   font-size: 16px;
   font-weight: 800;
   line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
   border-bottom: 2px solid color-mix(in srgb, var(--lane) 65%, transparent);
   border-radius: 0;
   user-select: text;
