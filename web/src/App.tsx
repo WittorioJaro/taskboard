@@ -488,6 +488,14 @@ const TaskCard = memo(function TaskCard({
     editor.style.height = `${editor.scrollHeight}px`;
   }, [draft, isEditing]);
 
+  useLayoutEffect(() => {
+    if (!isEditing || !editorRef.current) return;
+    const editor = editorRef.current;
+    const end = editor.value.length;
+    editor.focus();
+    editor.setSelectionRange(end, end);
+  }, [isEditing]);
+
   const commitRename = () => {
     if (cancelledRef.current) return;
     setIsEditing(false);
