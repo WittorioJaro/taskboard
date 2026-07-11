@@ -93,9 +93,17 @@ final class TaskBoardApplicationDelegate: NSObject, NSApplicationDelegate {
         configureApplicationIcon()
         NSApp.setActivationPolicy(.regular)
         QuickCaptureController.shared.registerHotKey()
+        NSApp.registerForRemoteNotifications()
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    func application(
+        _ application: NSApplication,
+        didReceiveRemoteNotification userInfo: [String: Any]
+    ) {
+        NotificationCenter.default.post(name: .cloudKitDataDidChange, object: nil)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

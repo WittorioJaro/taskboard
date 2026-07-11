@@ -5,6 +5,7 @@ let package = Package(
     name: "taskboard",
     platforms: [
         .macOS(.v15),
+        .iOS(.v17),
     ],
     products: [
         .executable(name: "taskboard", targets: ["taskboard"]),

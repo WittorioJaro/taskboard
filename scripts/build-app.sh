@@ -55,7 +55,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key>
     <string>taskboard</string>
     <key>CFBundleIdentifier</key>
-    <string>com.taskboard.app</string>
+    <string>com.wiktorjarochiewicz.taskboard.macos</string>
     <key>CFBundleIconFile</key>
     <string>taskboard</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -77,5 +77,14 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+if [[ -n "${TASKBOARD_SIGNING_IDENTITY:-}" ]]; then
+    codesign \
+        --force \
+        --options runtime \
+        --sign "$TASKBOARD_SIGNING_IDENTITY" \
+        --entitlements "$ROOT_DIR/macOS/taskboard.entitlements" \
+        "$APP_DIR"
+fi
 
 echo "Built app bundle at: $APP_DIR"

@@ -105,6 +105,9 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             requestQuickEntryFocus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudKitDataDidChange)) { _ in
+            store.handleRemoteNotification()
+        }
         .onChange(of: openMainWindowInCurrentSpace) { _, isEnabled in
             guard let mainWindow = mainWindow() else { return }
             MainWindowSpaceBehavior.apply(to: mainWindow, enabled: isEnabled)

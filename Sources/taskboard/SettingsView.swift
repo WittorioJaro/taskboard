@@ -16,10 +16,13 @@ struct SettingsView: View {
         ZStack {
             Color(hex: "0B0E13").ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 22) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
                 Text("Settings")
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
+
+                SupabaseSyncSettingsSection()
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Window")
@@ -127,11 +130,12 @@ struct SettingsView: View {
                     )
                 }
 
-                Spacer()
+                }
+                .padding(24)
             }
-            .padding(24)
+            .scrollIndicators(.hidden)
         }
-        .frame(width: 540, height: 620)
+        .frame(width: 540, height: 720)
         .onChange(of: quickCaptureKeyCode) { _, _ in
             QuickCaptureController.shared.reloadShortcut()
         }
@@ -143,6 +147,87 @@ struct SettingsView: View {
         }
     }
 
+}
+
+private struct SupabaseSyncSettingsSection: View {
+    @AppStorage(SupabasePreferences.urlKey) private var projectURL = ""
+    @AppStorage(SupabasePreferences.anonKeyKey) private var anonKey = ""
+    @AppStorage(SupabasePreferences.emailKey) private var email = ""
+    @State private var password = ""
+    @State private var statusMessage = SupabasePreferences.isConfigured
+        ? "Connected. taskboard syncs every few seconds."
+        : "Connect the same Supabase account used by the iPhone web app."
+    @State private var isConnecting = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sync")
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.white.opacity(0.48))
+                .textCase(.uppercase)
+
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Supabase project URL", text: $projectURL)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Public anon key", text: $anonKey)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    TextField("Email", text: $email)
+                        .textFieldStyle(.roundedBorder)
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
+                    Button(isConnecting ? "Connecting…" : "Connect Supabase") {
+                        connect()
+                    }
+                    .disabled(isConnecting || projectURL.isEmpty || anonKey.isEmpty || email.isEmpty || password.isEmpty)
+
+                    if SupabasePreferences.isConfigured {
+                        Button("Disconnect") {
+                            SupabaseSyncService.disconnect()
+                            statusMessage = "Disconnected. Restart taskboard to use local storage only."
+                        }
+                        .foregroundStyle(Color.red.opacity(0.82))
+                    }
+                }
+
+                Text(statusMessage)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.5))
+            }
+            .padding(18)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    )
+            )
+        }
+    }
+
+    private func connect() {
+        isConnecting = true
+        statusMessage = "Signing in…"
+        Task {
+            do {
+                try await SupabaseSyncService.signIn(
+                    projectURL: projectURL,
+                    anonKey: anonKey,
+                    email: email,
+                    password: password
+                )
+                password = ""
+                statusMessage = "Connected. Restart taskboard once to start syncing."
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+            isConnecting = false
+        }
+    }
 }
 
 private struct ShortcutRecorderButton: View {

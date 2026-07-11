@@ -1,7 +1,11 @@
-import AppKit
 import Foundation
 import Observation
 import SwiftUI
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -9,13 +13,25 @@ final class TaskBoardStore {
     var boards: [TaskBoard]
     var selectedBoardID: TaskBoard.ID?
     var copiedTaskID: TaskItem.ID?
+    private(set) var syncStatus: CloudSyncStatus = .idle
 
     private let persistenceURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private let cloudSync: CloudKitSyncService?
+#if os(macOS)
+    private let supabaseSync: SupabaseSyncService?
+    private var supabasePollingTask: Task<Void, Never>?
+#endif
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, enablesCloudSync: Bool = true) {
         persistenceURL = Self.makePersistenceURL(fileManager: fileManager)
+#if os(macOS)
+        supabaseSync = enablesCloudSync && SupabasePreferences.isConfigured ? SupabaseSyncService() : nil
+        cloudSync = enablesCloudSync && supabaseSync == nil && CloudKitSyncService.isEntitled ? CloudKitSyncService() : nil
+#else
+        cloudSync = enablesCloudSync && CloudKitSyncService.isEntitled ? CloudKitSyncService() : nil
+#endif
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
         if let snapshot = Self.loadSnapshot(from: persistenceURL, decoder: decoder) {
@@ -26,8 +42,22 @@ final class TaskBoardStore {
                 TaskBoard(title: "Inbox", themeID: BoardTheme.defaultTheme.id),
             ]
             selectedBoardID = boards.first?.id
-            persist()
+            writeSnapshotToDisk(currentSnapshot)
         }
+
+        #if os(macOS)
+        if supabaseSync != nil {
+            Task { [weak self] in await self?.startSupabaseSync() }
+        } else if cloudSync != nil {
+            Task { [weak self] in await self?.startCloudSync() }
+        }
+        #else
+        if cloudSync != nil {
+            Task { [weak self] in
+                await self?.startCloudSync()
+            }
+        }
+        #endif
     }
 
     var selectedBoard: TaskBoard? {
@@ -225,9 +255,13 @@ final class TaskBoardStore {
     }
 
     func copyTask(_ task: TaskItem) {
+#if os(macOS)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(task.title, forType: .string)
+#elseif os(iOS)
+        UIPasteboard.general.string = task.title
+#endif
         copiedTaskID = task.id
 
         Task { @MainActor [weak self] in
@@ -258,7 +292,9 @@ final class TaskBoardStore {
             task.completedAt = .now
             boards[boardIndex].tasks.append(task)
         }
+#if os(macOS)
         CodexRunMonitor.shared.removeRuns(for: taskID)
+#endif
         persist()
     }
 
@@ -312,9 +348,135 @@ final class TaskBoardStore {
         return "\(base) \(index)"
     }
 
+    func refreshFromCloud() async {
+#if os(macOS)
+        if let supabaseSync {
+            await refreshFromSupabase(supabaseSync)
+            return
+        }
+#endif
+        guard let cloudSync else { return }
+        syncStatus = .syncing
+        do {
+            if let remoteSnapshot = try await cloudSync.fetchSnapshot() {
+                apply(remoteSnapshot)
+            }
+            syncStatus = .synced
+        } catch {
+            syncStatus = .error(error.localizedDescription)
+        }
+    }
+
+    func handleRemoteNotification() {
+        Task { [weak self] in
+            await self?.refreshFromCloud()
+        }
+    }
+
+    private func startCloudSync() async {
+        guard let cloudSync else { return }
+        syncStatus = .syncing
+
+        do {
+            if let remoteSnapshot = try await cloudSync.start() {
+                if currentSnapshot.hasUserContent && !remoteSnapshot.hasUserContent {
+                    try await cloudSync.save(snapshot: currentSnapshot)
+                } else {
+                    apply(remoteSnapshot)
+                }
+            } else {
+                try await cloudSync.save(snapshot: currentSnapshot)
+            }
+            try await cloudSync.createSubscriptionIfNeeded()
+            syncStatus = .synced
+        } catch {
+            syncStatus = .error(error.localizedDescription)
+        }
+    }
+
+#if os(macOS)
+    private func startSupabaseSync() async {
+        guard let supabaseSync else { return }
+        syncStatus = .syncing
+        do {
+            if let remoteSnapshot = try await supabaseSync.fetchSnapshot() {
+                if currentSnapshot.hasUserContent && !remoteSnapshot.hasUserContent {
+                    try await supabaseSync.save(snapshot: currentSnapshot)
+                } else {
+                    apply(remoteSnapshot)
+                }
+            } else {
+                try await supabaseSync.save(snapshot: currentSnapshot)
+            }
+            syncStatus = .synced
+            beginSupabasePolling()
+        } catch {
+            syncStatus = .error(error.localizedDescription)
+        }
+    }
+
+    private func refreshFromSupabase(_ service: SupabaseSyncService) async {
+        do {
+            if let remoteSnapshot = try await service.fetchSnapshot(), remoteSnapshot != currentSnapshot {
+                apply(remoteSnapshot)
+            }
+            syncStatus = .synced
+        } catch {
+            syncStatus = .error(error.localizedDescription)
+        }
+    }
+
+    private func beginSupabasePolling() {
+        supabasePollingTask?.cancel()
+        supabasePollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(4))
+                guard !Task.isCancelled, let self, let service = self.supabaseSync else { return }
+                await self.refreshFromSupabase(service)
+            }
+        }
+    }
+#endif
+
+    private var currentSnapshot: TaskBoardSnapshot {
+        TaskBoardSnapshot(boards: boards, selectedBoardID: selectedBoardID)
+    }
+
+    private func apply(_ snapshot: TaskBoardSnapshot) {
+        guard !snapshot.boards.isEmpty else { return }
+        boards = snapshot.boards
+        selectedBoardID = snapshot.selectedBoardID.flatMap { selected in
+            snapshot.boards.contains(where: { $0.id == selected }) ? selected : nil
+        } ?? snapshot.boards.first?.id
+        writeSnapshotToDisk(snapshot)
+    }
+
     private func persist() {
         let snapshot = TaskBoardSnapshot(boards: boards, selectedBoardID: selectedBoardID)
+        writeSnapshotToDisk(snapshot)
+#if os(macOS)
+        if let supabaseSync {
+            supabaseSync.scheduleSave(snapshot: snapshot) { [weak self] result in
+                self?.applySyncResult(result)
+            }
+            return
+        }
+#endif
+        cloudSync?.scheduleSave(snapshot: snapshot) { [weak self] result in
+            self?.applySyncResult(result)
+        }
+    }
 
+    private func applySyncResult(_ result: Result<Void, Error>) {
+        switch result {
+        case .success:
+            syncStatus = .synced
+        case .failure(let error):
+            syncStatus = .error(error.localizedDescription)
+        }
+    }
+
+    private func writeSnapshotToDisk(_ snapshot: TaskBoardSnapshot) {
         do {
             let data = try encoder.encode(snapshot)
             let directory = persistenceURL.deletingLastPathComponent()
@@ -344,7 +506,12 @@ final class TaskBoardStore {
     }
 }
 
-private struct TaskBoardSnapshot: Codable {
+struct TaskBoardSnapshot: Codable, Sendable, Equatable {
     var boards: [TaskBoard]
     var selectedBoardID: TaskBoard.ID?
+
+    var hasUserContent: Bool {
+        boards.count > 1
+            || boards.contains { !$0.tasks.isEmpty || $0.title != "Inbox" || !$0.folderPath.isEmpty }
+    }
 }
