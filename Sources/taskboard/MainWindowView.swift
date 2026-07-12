@@ -646,6 +646,7 @@ private struct BoardColumnView: View {
                 TaskLaneDropZone(
                     tint: .green,
                     isTargeted: laneTargetBinding(for: .done),
+                    onEnter: { moveDraggedTask(to: .done) },
                     onDrop: { performStatusDrop(to: .done) }
                 ) {
                     TaskSectionHeader(
@@ -674,6 +675,7 @@ private struct BoardColumnView: View {
                                 onRename: { newTitle in
                                     store.renameTask(taskID: task.id, in: board.id, title: newTitle)
                                 },
+                                isDragged: draggedTaskID == task.id,
                                 onDragStart: { draggedTaskID = task.id }
                             )
                         }
@@ -683,6 +685,7 @@ private struct BoardColumnView: View {
                 TaskLaneDropZone(
                     tint: board.theme.accentColor,
                     isTargeted: laneTargetBinding(for: .running),
+                    onEnter: { moveDraggedTask(to: .running) },
                     onDrop: { performStatusDrop(to: .running) }
                 ) {
                     TaskSectionHeader(
@@ -711,6 +714,7 @@ private struct BoardColumnView: View {
                                 onRename: { newTitle in
                                     store.renameTask(taskID: task.id, in: board.id, title: newTitle)
                                 },
+                                isDragged: draggedTaskID == task.id,
                                 onDragStart: { draggedTaskID = task.id }
                             )
                         }
@@ -720,6 +724,7 @@ private struct BoardColumnView: View {
                 TaskLaneDropZone(
                     tint: Color.white.opacity(0.48),
                     isTargeted: laneTargetBinding(for: .todo),
+                    onEnter: { moveDraggedTask(to: .todo) },
                     onDrop: { performStatusDrop(to: .todo) }
                 ) {
                     TaskSectionHeader(
@@ -748,6 +753,7 @@ private struct BoardColumnView: View {
                                 onRename: { newTitle in
                                     store.renameTask(taskID: task.id, in: board.id, title: newTitle)
                                 },
+                                isDragged: draggedTaskID == task.id,
                                 onDragStart: { draggedTaskID = task.id }
                             )
                             .onDrop(
@@ -778,6 +784,23 @@ private struct BoardColumnView: View {
                 .padding(.bottom, 10)
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.9), value: board.tasks)
+            .onChange(of: draggedTaskID) { _, newValue in
+                guard let newValue else { return }
+                let originLane = currentLane(of: newValue)
+                Task { @MainActor in
+                    while draggedTaskID == newValue, NSEvent.pressedMouseButtons & 0x1 != 0 {
+                        try? await Task.sleep(for: .milliseconds(120))
+                    }
+                    try? await Task.sleep(for: .milliseconds(200))
+                    if draggedTaskID == newValue {
+                        if let originLane {
+                            store.moveTask(taskID: newValue, in: boardID, to: originLane)
+                        }
+                        draggedTaskID = nil
+                        targetedStatus = nil
+                    }
+                }
+            }
             .alert("Delete board?", isPresented: $showingDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     store.deleteBoard(id: board.id)
@@ -839,12 +862,26 @@ private struct BoardColumnView: View {
         )
     }
 
+    private func moveDraggedTask(to status: TaskStatus) {
+        guard let draggedTaskID else { return }
+        store.moveTask(taskID: draggedTaskID, in: boardID, to: status)
+    }
+
     private func performStatusDrop(to status: TaskStatus) -> Bool {
         guard let draggedTaskID else { return false }
         store.moveTask(taskID: draggedTaskID, in: boardID, to: status)
         self.draggedTaskID = nil
         targetedStatus = nil
         return true
+    }
+
+    private func currentLane(of taskID: TaskItem.ID) -> TaskStatus? {
+        guard let board else { return nil }
+        for lane in [TaskStatus.done, .running, .todo]
+        where tasks(in: lane, for: board).contains(where: { $0.id == taskID }) {
+            return lane
+        }
+        return nil
     }
 
     private func emptyText(for lane: TaskStatus) -> String {
@@ -969,7 +1006,6 @@ private struct TaskSectionHeader: View {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(count == 0 ? Color.white.opacity(0.24) : tint)
         }
-        .padding(.top, 18)
         .padding(.bottom, 7)
     }
 }
@@ -1000,6 +1036,7 @@ private struct TaskSectionSurface<Content: View>: View {
 private struct TaskLaneDropZone<Content: View>: View {
     let tint: Color
     @Binding var isTargeted: Bool
+    let onEnter: () -> Void
     let onDrop: () -> Bool
     @ViewBuilder let content: Content
 
@@ -1009,17 +1046,57 @@ private struct TaskLaneDropZone<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .background(isTargeted ? tint.opacity(0.065) : Color.clear)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tint.opacity(isTargeted ? 0.065 : 0))
+                .padding(.horizontal, -8)
+        }
         .overlay(alignment: .leading) {
-            Rectangle()
+            RoundedRectangle(cornerRadius: 1.5)
                 .fill(tint)
-                .frame(width: 2)
+                .frame(width: 3)
+                .padding(.vertical, 3)
+                .offset(x: -11)
                 .opacity(isTargeted ? 1 : 0)
         }
+        .padding(.top, 16)
         .animation(.easeOut(duration: 0.14), value: isTargeted)
-        .onDrop(of: [UTType.taskboardTask], isTargeted: $isTargeted) { _ in
-            onDrop()
-        }
+        .onDrop(
+            of: [UTType.taskboardTask],
+            delegate: TaskLaneDropDelegate(
+                isTargeted: $isTargeted,
+                onEnter: onEnter,
+                onFinish: onDrop
+            )
+        )
+    }
+}
+
+private struct TaskLaneDropDelegate: DropDelegate {
+    @Binding var isTargeted: Bool
+    let onEnter: () -> Void
+    let onFinish: () -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [UTType.taskboardTask])
+    }
+
+    func dropEntered(info: DropInfo) {
+        isTargeted = true
+        onEnter()
+    }
+
+    func dropExited(info: DropInfo) {
+        isTargeted = false
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        return onFinish()
     }
 }
 
@@ -1146,6 +1223,7 @@ private struct MinimalTaskRow: View {
     let onSendToCodex: (TaskItem.ID) -> Void
     let onDone: () -> Void
     let onRename: (String) -> Void
+    let isDragged: Bool
     let onDragStart: () -> Void
 
     @State private var draftTitle = ""
@@ -1238,11 +1316,13 @@ private struct MinimalTaskRow: View {
                 .frame(height: 1)
                 .padding(.leading, 26)
         }
+        .opacity(isDragged ? 0.3 : 1)
+        .animation(.easeOut(duration: 0.15), value: isDragged)
         .onDrag {
             onDragStart()
             return taskDragProvider()
         } preview: {
-            TaskDragPreview(title: task.title, accentColor: board.theme.accentColor)
+            DragPreview()
         }
         .onAppear {
             draftTitle = task.title
@@ -1477,40 +1557,11 @@ private struct TaskReorderDropDelegate: DropDelegate {
 
 private struct DragPreview: View {
     var body: some View {
-        Color.clear
-            .frame(width: 1, height: 1)
-    }
-}
-
-private struct TaskDragPreview: View {
-    let title: String
-    let accentColor: Color
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "text.page")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(accentColor)
-                .frame(width: 18, height: 18)
-
-            Text(title)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.92))
-                .lineLimit(3)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .frame(width: 250)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(hex: "15191F"))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(accentColor.opacity(0.28), lineWidth: 1)
-                }
-        )
-        .shadow(color: .black.opacity(0.3), radius: 14, x: 0, y: 8)
+        // A fully transparent preview makes macOS fall back to snapshotting
+        // the dragged view; keep a single near-invisible pixel instead.
+        Rectangle()
+            .fill(Color.black.opacity(0.02))
+            .frame(width: 2, height: 2)
     }
 }
 
