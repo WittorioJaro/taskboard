@@ -6,18 +6,18 @@ struct MenuBarCompanionView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "0A0D11")
+            Color(nsColor: .windowBackgroundColor)
 
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("taskboard")
                             .font(.system(size: 17, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
 
                         Text("\(store.pendingTaskCount) open · \(store.boards.count) boards")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Color.white.opacity(0.44))
+                            .foregroundStyle(Color.primary.opacity(0.44))
                     }
 
                     Spacer()
@@ -27,7 +27,7 @@ struct MenuBarCompanionView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .tint(.white)
+                .tint(.primary)
 
                 Button("Quick Capture") {
                     QuickCaptureController.shared.handleHotKey()
@@ -49,7 +49,6 @@ struct MenuBarCompanionView: View {
             .padding(18)
         }
         .frame(width: 396)
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -63,10 +62,10 @@ private struct MenuBarBoardSection: View {
             MenuBarTaskList(store: store, board: board)
         }
         .padding(14)
-        .background(Color(hex: "10141A"), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
     }
 }
@@ -78,7 +77,7 @@ private struct MenuBarBoardHeader: View {
         HStack {
             Text(board.title)
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
 
             Spacer()
 
@@ -103,7 +102,7 @@ private struct MenuBarTaskRow: View {
             HStack(spacing: 10) {
                 Text(task.title)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(.primary.opacity(0.9))
                     .lineLimit(nil)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -125,16 +124,16 @@ private struct MenuBarTaskRow: View {
                         .font(.system(size: 11, weight: .bold))
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(Color.white.opacity(0.48))
+                .foregroundStyle(Color.primary.opacity(0.48))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 11)
-            .background(Color.white.opacity(0.025))
+            .background(Color.primary.opacity(0.025))
             .transition(.opacity.combined(with: .move(edge: .top)))
 
             if !isLast {
                 Rectangle()
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.primary.opacity(0.06))
                     .frame(height: 1)
             }
         }
@@ -150,7 +149,7 @@ private struct MenuBarTaskList: View {
             if board.openTasks.isEmpty {
                 Text("No open tasks")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.46))
+                    .foregroundStyle(Color.primary.opacity(0.46))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 14)
@@ -167,10 +166,10 @@ private struct MenuBarTaskList: View {
                 }
             }
         }
-        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.07), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

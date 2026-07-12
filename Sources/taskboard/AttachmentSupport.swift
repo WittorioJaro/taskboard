@@ -72,7 +72,7 @@ struct AttachmentThumbnail: View {
                     .scaledToFill()
                     .frame(width: 48, height: 48)
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.white.opacity(0.14)))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.14)))
             }
             .buttonStyle(.plain)
             .help("Open \(attachment.fileName)")
@@ -81,7 +81,7 @@ struct AttachmentThumbnail: View {
                 Button { onRemove(attachment) } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 7, weight: .black))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .frame(width: 16, height: 16)
                         .background(.black.opacity(0.72), in: Circle())
                 }
@@ -91,7 +91,7 @@ struct AttachmentThumbnail: View {
         }
         .sheet(isPresented: $isExpanded) {
             ZStack(alignment: .topTrailing) {
-                Color(hex: "080A0E")
+                Color(nsColor: .windowBackgroundColor)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { isExpanded = false }
@@ -104,7 +104,7 @@ struct AttachmentThumbnail: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 30, height: 30)
-                        .background(Color.white.opacity(0.1), in: Circle())
+                        .background(Color.primary.opacity(0.1), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .padding(14)
@@ -129,9 +129,9 @@ struct PasteAttachmentButton: View {
         Button(action: action) {
             Image(systemName: "paperclip")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(.primary.opacity(0.72))
                 .frame(width: 44, height: 44)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .help("Paste image from clipboard")

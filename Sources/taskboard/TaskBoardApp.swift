@@ -19,6 +19,36 @@ enum WindowPreferences {
     }
 }
 
+enum AppearancePreferences {
+    enum Mode: String, CaseIterable, Identifiable {
+        case system
+        case light
+        case dark
+
+        var id: Self { self }
+        var title: String { rawValue.capitalized }
+
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .system: nil
+            case .light: .light
+            case .dark: .dark
+            }
+        }
+    }
+
+    static let modeDefaultsKey = "appearanceMode"
+    static let lightModeDefaultsKey = "lightModeEnabled"
+
+    static var initialModeRawValue: String {
+        let defaults = UserDefaults.standard
+        if let stored = defaults.string(forKey: modeDefaultsKey), Mode(rawValue: stored) != nil {
+            return stored
+        }
+        return defaults.bool(forKey: lightModeDefaultsKey) ? Mode.light.rawValue : Mode.dark.rawValue
+    }
+}
+
 @MainActor
 enum MainWindowSpaceBehavior {
     static func apply(to window: NSWindow, enabled: Bool = WindowPreferences.opensMainWindowInCurrentSpace) {
@@ -54,12 +84,18 @@ enum MainWindowSpaceBehavior {
 struct TaskBoardApp: App {
     @NSApplicationDelegateAdaptor(TaskBoardApplicationDelegate.self) private var appDelegate
     @State private var store = TaskBoardStore()
+    @AppStorage(AppearancePreferences.modeDefaultsKey)
+    private var appearanceMode = AppearancePreferences.initialModeRawValue
+
+    private var preferredColorScheme: ColorScheme? {
+        AppearancePreferences.Mode(rawValue: appearanceMode)?.colorScheme
+    }
 
     var body: some Scene {
         Window("taskboard", id: SceneID.mainWindow) {
             MainWindowView(store: store)
                 .frame(minWidth: 360, minHeight: 520)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(preferredColorScheme)
                 .task {
                     QuickCaptureController.shared.configure(store: store)
                 }
@@ -70,20 +106,20 @@ struct TaskBoardApp: App {
 
         Window("Quick Capture", id: SceneID.quickCaptureWindow) {
             QuickCaptureWindowView(controller: QuickCaptureController.shared)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(preferredColorScheme)
         }
         .defaultSize(width: 500, height: 282)
         .windowResizability(.contentSize)
 
         MenuBarExtra("taskboard", systemImage: "checklist") {
             MenuBarCompanionView(store: store)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(preferredColorScheme)
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(preferredColorScheme)
         }
     }
 }

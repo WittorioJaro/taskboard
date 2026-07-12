@@ -1,40 +1,83 @@
 # taskboard
 
-`taskboard` is a native SwiftUI task manager on macOS with an installable iPhone web app. It gives you lightweight boards, a menu bar companion and global quick capture on Mac, a touch-first PWA on iPhone, and realtime synchronization through Supabase.
+A small, local-first task manager for macOS, with an optional installable iPhone web app.
 
-The app is intentionally local-first: your boards live on your Mac, the UI feels native, and there are no accounts, sync services, or backend dependencies to set up.
+taskboard is designed for fast capture and a quiet workflow: create boards, move tasks between Todo, Running, and Done, and send repository-backed work to Codex without leaving the app. The Mac app works entirely offline. Supabase sync is optional and only needed if you want the iPhone PWA and Mac app to share data.
 
-## Highlights
+## Features
 
-- Multiple boards with offline-first local storage and Supabase sync
-- Installable iPhone PWA with quick capture and touch drag-and-drop lanes
-- Fast inline task creation and completion
-- One-click copy actions for moving tasks into other tools
-- Menu bar companion for browsing and acting on open tasks
-- Global quick-capture popup with a customizable keyboard shortcut
+- Native SwiftUI macOS app with light, dark, and system appearance
+- Multiple boards with local JSON persistence
+- Todo, Running, and Done lanes with drag and drop
+- Menu bar companion for open tasks
+- Global Quick Capture window with a configurable shortcut
 - Per-board repository folders
-- Sequential Codex queues with branch, model, and reasoning controls
-- One-click direct prompts to Codex on a repository's `main` checkout
-- Native macOS interface built with SwiftUI and AppKit integrations
+- Codex queues with branch, model, and reasoning controls
+- Direct prompts to Codex from a board's `main` checkout
+- Optional Supabase sync with an installable iPhone PWA
+- Offline storage on both Mac and iPhone
 
-## Requirements
+## Choose your setup
 
-- macOS 15 or newer
-- Xcode 16+ or a recent Swift 6.2 toolchain
-- Node.js 20 or newer for PWA development
-- A free Supabase project for cross-device sync
+| What you want | What you need |
+| --- | --- |
+| Mac app only | macOS 15 and Swift 6.2/Xcode 16 or newer |
+| Mac app + iPhone sync | The Mac requirements, Node.js 22, and a free Supabase project |
+| PWA development only | Node.js 22 and a free Supabase project |
 
-The package manifest targets macOS 15 in [`Package.swift`](./Package.swift).
+The Mac app has no third-party Swift package dependencies. An Apple Developer account is not required for local builds or for installing the PWA.
 
-## Running The App
+## Quick start: macOS
 
-### iPhone PWA
+Clone the repository and run the app directly:
 
-The PWA installs from Safari and does not require an Apple Developer account.
+```bash
+git clone https://github.com/WittorioJaro/taskboard.git
+cd taskboard
+swift run taskboard
+```
 
-1. Create a free Supabase project.
-2. Open its **SQL Editor** and run [`web/supabase/schema.sql`](./web/supabase/schema.sql).
-3. From the `web` directory, install and test the app:
+You can also open [`Package.swift`](./Package.swift) in Xcode, select the `taskboard` scheme, and press Run.
+
+### Build an app for Applications
+
+On an Apple silicon Mac, run:
+
+```bash
+./scripts/build-app.sh
+```
+
+The script creates an ad-hoc signed app at `dist/taskboard.app`. Install or replace it with:
+
+```bash
+rm -rf /Applications/taskboard.app
+ditto dist/taskboard.app /Applications/taskboard.app
+open /Applications/taskboard.app
+```
+
+The included logo is converted to a macOS `.icns` file automatically. For distribution with your own Developer ID, provide a signing identity:
+
+```bash
+TASKBOARD_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+  ./scripts/build-app.sh
+```
+
+The script signs the build but does not notarize it.
+
+## Optional: iPhone PWA and sync
+
+The PWA is the supported iPhone client. It runs in Safari, can be added to the Home Screen, and syncs through your own Supabase project.
+
+### 1. Create the Supabase backend
+
+1. Create a project at [supabase.com](https://supabase.com/).
+2. Open the project's **SQL Editor**.
+3. Copy and run [`web/supabase/schema.sql`](./web/supabase/schema.sql).
+4. In **Project Settings → API**, copy the project URL and the public anon key.
+
+The schema creates one JSON snapshot per authenticated user, enables row-level security, and adds the table to Supabase Realtime. Use only the public anon key in the app—never use a service-role key.
+
+### 2. Run the PWA locally
 
 ```bash
 cd web
@@ -42,125 +85,141 @@ npm install
 npm run dev
 ```
 
-4. Deploy it to an HTTPS host. Vercel works with the included configuration:
+Vite prints a local development URL. For on-device PWA testing, use an HTTPS deployment or HTTPS development tunnel; service workers and installation require a secure context.
+
+Supabase credentials can be entered in the PWA's connection screen. For development or deployment, they can instead be supplied at build time:
+
+```bash
+VITE_SUPABASE_URL="https://your-project.supabase.co" \
+VITE_SUPABASE_ANON_KEY="your-public-anon-key" \
+  npm run dev
+```
+
+These values are public client configuration and will be present in the browser bundle. Security comes from authentication and the row-level-security policies in the included schema.
+
+### 3. Deploy the PWA
+
+The repository includes [`web/vercel.json`](./web/vercel.json), so Vercel can build the PWA without additional routing configuration:
 
 ```bash
 cd web
 npx vercel --prod
 ```
 
-5. Open the deployed URL in Safari on iPhone, tap **Share**, choose **Add to Home Screen**, then open taskboard from its new icon.
-6. Tap **Offline** in taskboard. Enter the Supabase project URL and public anon key from **Project Settings → API**, then create an account.
+Alternatively, run `npm run build` and deploy the generated `web/dist` directory to any HTTPS static host with SPA fallback routing.
 
-Supabase may require email confirmation before the first sign-in. Keep the anon key public; never enter the service-role key in the PWA.
+On iPhone, open the deployed URL in Safari, tap **Share**, choose **Add to Home Screen**, and launch taskboard from the new icon.
 
-### Connect the Mac app
+### 4. Connect both clients
 
-1. Create or sign into the PWA account first.
-2. In the Mac app, open **Settings → Sync**.
-3. Enter the same Supabase URL, anon key, email, and password.
-4. Click **Connect Supabase**, then restart taskboard once.
+1. In the PWA, open the **Offline** connection panel.
+2. Enter the Supabase URL and anon key, then create an account or sign in.
+3. In the Mac app, open **Settings → Sync**.
+4. Enter the same URL, anon key, email, and password.
+5. Select **Connect Supabase**.
 
-On the first connection, the Mac snapshot seeds an empty remote taskboard. The PWA receives subsequent changes through Supabase Realtime; the Mac checks for remote changes every four seconds. Both clients retain a local copy while offline.
+Supabase projects may require email confirmation before the first sign-in. Both clients keep a local copy and remain usable while offline. When a remote account is empty, the first Mac connection seeds it with the Mac's current snapshot.
 
-### Legacy native iPhone target
+## Codex integration
 
-The experimental `taskboard-ios.xcodeproj` remains in the repository, but CloudKit device builds require a paid Apple Developer membership. The PWA is the supported no-fee iPhone installation path.
+Assign a local Git repository folder to a board using the folder button in its header.
 
-### Xcode
+- **Queue runs** send tasks in order to one persistent Codex thread and can use a dedicated worktree on a new or existing branch.
+- **Direct sends** send one task immediately, without creating a worktree or branch. The configured repository must currently be on `main`.
 
-1. Open [`Package.swift`](./Package.swift) in Xcode.
-2. Select the `taskboard` scheme.
-3. Build and run the app.
+Codex integration expects the Codex desktop app or its bundled CLI to be installed locally. Task management itself does not depend on Codex.
 
-### Command Line
+## Data and privacy
 
-```bash
-swift run taskboard
-```
-
-### Build An App Bundle
-
-If you want something you can move into `Applications`, build the `.app` bundle:
-
-```bash
-./scripts/build-app.sh
-```
-
-If `Assets/taskboard-logo.png` exists, the build script also converts it into a proper macOS app icon and embeds it into the bundle.
-
-That creates:
-
-```text
-dist/taskboard.app
-```
-
-Then install it with:
-
-```bash
-cp -R dist/taskboard.app /Applications/
-```
-
-## How It Works
-
-`taskboard` has five main surfaces:
-
-- Main window: browse boards, add tasks quickly, and complete or copy items inline
-- Menu bar companion: check open work without switching to the main window
-- Quick capture popup: add a task from anywhere using a global shortcut
-- Codex queue: send ordered tasks as separate prompts in one persistent Codex thread
-- iPhone PWA: capture, organize, rename, move, and complete synced tasks
-
-Each board can point at its own local Git repository. Queue runs use a dedicated worktree on an existing or new branch. Direct sends skip the queue and branch creation, and require that board folder to be checked out on `main`.
-
-Task data is stored locally as JSON on Mac and in browser storage in the PWA, so both apps start fast and work without network access. Supabase stores one authenticated snapshot per user and publishes realtime changes to the PWA.
-
-## Storage And Privacy
-
-Task data is cached locally on each device and synced through a row-level-security-protected Supabase record:
+Without sync, task data never needs to leave the Mac. The native app stores its board snapshot at:
 
 ```text
 ~/Library/Application Support/taskboard/boards.json
 ```
 
-Only the authenticated Supabase user can read or update their snapshot. The project URL and anon key are stored locally; the Mac refresh token is stored in Keychain. Without Supabase, both clients continue to work locally and report an offline state.
+The PWA caches data in browser storage. When Supabase sync is enabled, each authenticated user can access only their own snapshot through the schema's row-level-security policies. The Mac stores its refresh token in Keychain; project configuration remains local to each client.
 
-## Project Structure
+Before experimenting with sync or schema changes, exporting a PWA JSON backup is recommended.
+
+## Development
+
+### Mac app
+
+```bash
+swift test
+swift run taskboard
+```
+
+Four live Codex integration tests are skipped by default. Run them only when you intentionally want the test suite to invoke a locally installed Codex environment:
+
+```bash
+TASKBOARD_RUN_CODEX_INTEGRATION_TESTS=1 swift test
+```
+
+### Web app
+
+```bash
+cd web
+npm install
+npm run build
+npm run test:sync
+npm run preview
+```
+
+## Project structure
 
 ```text
 Sources/taskboard/
-  TaskBoardApp.swift          App entry point and scene setup
-  MainWindowView.swift        Main board UI
-  MenuBarCompanionView.swift  Menu bar companion UI
-  QuickCaptureSupport.swift   Global shortcut and quick capture flow
-  SettingsView.swift          App preferences
-  TaskBoardStore.swift        Observable store and persistence
-  Models.swift                Task, board, and theme models
-  CloudKitSyncService.swift   Private database sync and change subscriptions
-  SupabaseSyncService.swift   Authenticated REST sync for the Mac app
+  TaskBoardApp.swift          App entry point, windows, and appearance
+  MainWindowView.swift        Main board interface and drag and drop
+  MenuBarCompanionView.swift  Menu bar interface
+  QuickCaptureSupport.swift   Global shortcut and Quick Capture window
+  SettingsView.swift          Appearance, sync, and app preferences
+  TaskBoardStore.swift        State, task operations, and persistence
+  Models.swift                Board, task, attachment, and theme models
+  CodexIntegration.swift      Codex threads, queues, and worktrees
+  SupabaseSyncService.swift   Mac authentication and snapshot sync
 web/
-  src/                        React PWA, offline state, and realtime adapter
-  supabase/schema.sql         Database table and row-level security
-iOS/
-  TaskBoardMobileApp.swift    Legacy native iPhone target
-taskboard-ios.xcodeproj/      Legacy CloudKit Xcode project
+  src/                        React PWA and realtime sync client
+  public/                     Manifest, icons, and service worker
+  supabase/schema.sql         Database schema and security policies
+scripts/
+  build-app.sh                Release app bundle and signing script
+iOS/                          Experimental legacy native iPhone source
+taskboard-ios.xcodeproj/      Experimental legacy CloudKit project
 ```
 
-## Development Notes
+The legacy native iPhone target remains for experimentation, but device builds using CloudKit require Apple signing. The PWA is the recommended no-fee iPhone installation path.
 
-- State is managed in a local observable store.
-- Persistence uses JSON in Application Support.
-- The native Mac target has no external package dependencies.
-- The PWA is built with React, dnd-kit, Vite, and Supabase JS.
+## Troubleshooting
+
+### The Mac app will not open
+
+The locally built bundle is ad-hoc signed rather than notarized. If macOS blocks it, Control-click the app, choose **Open**, and confirm once.
+
+### The PWA stays offline
+
+- Confirm that the URL starts with `https://` and belongs to the same Supabase project as the anon key.
+- Confirm that [`web/supabase/schema.sql`](./web/supabase/schema.sql) completed successfully.
+- Verify the account's email if Supabase email confirmation is enabled.
+- Do not substitute the service-role key for the anon key.
+
+### Realtime changes do not arrive
+
+In Supabase, check that `public.taskboard_snapshots` is included in the `supabase_realtime` publication. The provided schema does this automatically.
 
 ## Contributing
 
-Contributions, issues, and improvement ideas are welcome.
+Issues and pull requests are welcome. For changes, please include:
 
-If you open a pull request, a short note about the change and any manual testing helps a lot.
+- A concise explanation of the behavior being changed
+- The platforms you tested
+- `swift test` results for Mac changes
+- `npm run build` and `npm run test:sync` results for PWA changes
+- Screenshots or a short recording for visible UI changes
+
+Please keep credentials, local task data, build products, and signing identities out of commits.
 
 ## License
 
-This project is licensed under the MIT License. You can use, copy, modify, publish, distribute, sublicense, and sell it, as long as the license notice is included.
-
-See [`LICENSE`](./LICENSE) for the full text.
+taskboard is available under the [MIT License](./LICENSE).

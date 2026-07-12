@@ -30,7 +30,7 @@ struct CodexSendSheet: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "0B0E13").ignoresSafeArea()
+            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
 
             if let board {
                 VStack(alignment: .leading, spacing: 18) {
@@ -55,10 +55,10 @@ struct CodexSendSheet: View {
         VStack(alignment: .leading, spacing: 7) {
             Text("Codex Queue")
                 .font(.system(size: 25, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
             Text("Send prompts from \(board.title) one by one into one persistent Codex thread.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.52))
+                .foregroundStyle(Color.primary.opacity(0.52))
         }
     }
 
@@ -67,15 +67,15 @@ struct CodexSendSheet: View {
             HStack(spacing: 10) {
                 Text(board.folderPath.isEmpty ? "No folder selected" : board.folderPath)
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(board.folderPath.isEmpty ? Color.orange : Color.white.opacity(0.78))
+                    .foregroundStyle(board.folderPath.isEmpty ? Color.orange : Color.primary.opacity(0.78))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button("Choose", action: chooseFolder)
                     .buttonStyle(.borderedProminent)
-                    .tint(.white)
-                    .foregroundStyle(.black)
+                    .tint(.primary)
+                    .foregroundStyle(Color(nsColor: .windowBackgroundColor))
             }
         }
     }
@@ -96,19 +96,19 @@ struct CodexSendSheet: View {
                             HStack(alignment: .top, spacing: 12) {
                                 Image(systemName: selectedTaskIDs.contains(task.id) ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(selectedTaskIDs.contains(task.id) ? board.theme.accentColor : Color.white.opacity(0.3))
+                                    .foregroundStyle(selectedTaskIDs.contains(task.id) ? board.theme.accentColor : Color.primary.opacity(0.3))
                                     .padding(.top, 1)
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text(task.title)
                                         .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.9))
+                                        .foregroundStyle(.primary.opacity(0.9))
                                         .multilineTextAlignment(.leading)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     AttachmentDraftStrip(attachments: task.attachments)
                                 }
                             }
                             .padding(13)
-                            .background(Color.white.opacity(selectedTaskIDs.contains(task.id) ? 0.08 : 0.035), in: RoundedRectangle(cornerRadius: 14))
+                            .background(Color.primary.opacity(selectedTaskIDs.contains(task.id) ? 0.08 : 0.035), in: RoundedRectangle(cornerRadius: 14))
                         }
                         .buttonStyle(.plain)
                     }
@@ -152,7 +152,7 @@ struct CodexSendSheet: View {
 
             Text("Runs in the background. The persisted thread will appear in Codex history without focusing the Codex window.")
                 .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.48))
+                .foregroundStyle(Color.primary.opacity(0.48))
         }
     }
 
@@ -161,15 +161,15 @@ struct CodexSendSheet: View {
         if isSending {
             HStack(spacing: 12) {
                 Image(systemName: dispatchStatus.phase.systemImage)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .symbolEffect(.pulse, isActive: dispatchStatus.phase.isActive)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(dispatchStatus.phase.title)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(.primary.opacity(0.8))
                     Text(queueStatusDetail)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.46))
+                        .foregroundStyle(Color.primary.opacity(0.46))
                 }
             }
         } else if let receipt {
@@ -180,7 +180,7 @@ struct CodexSendSheet: View {
                 Text(receipt.worktreePath)
             }
             .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.white.opacity(0.56))
+            .foregroundStyle(Color.primary.opacity(0.56))
         } else if let errorMessage {
             Text(errorMessage)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -192,15 +192,15 @@ struct CodexSendSheet: View {
         HStack {
             Button("Close") { isPresented = false }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.white.opacity(0.6))
+                .foregroundStyle(Color.primary.opacity(0.6))
             Spacer()
             Button(action: sendQueue) {
                 Text("Run \(selectedTasks.count) Prompt\(selectedTasks.count == 1 ? "" : "s")")
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
             }
             .buttonStyle(.borderedProminent)
-            .tint(.white)
-            .foregroundStyle(.black)
+            .tint(.primary)
+            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
             .disabled(!canSend)
         }
     }
@@ -225,12 +225,12 @@ struct CodexSendSheet: View {
         VStack(alignment: .leading, spacing: 11) {
             Text(title.uppercased())
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.42))
+                .foregroundStyle(Color.primary.opacity(0.42))
             content()
         }
         .padding(16)
-        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.07)))
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.07)))
     }
 
     private func labeledPicker<Value: Hashable & Identifiable>(
@@ -241,7 +241,7 @@ struct CodexSendSheet: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.42))
+                .foregroundStyle(Color.primary.opacity(0.42))
             Picker(title, selection: selection) {
                 ForEach(values) { value in
                     Text(displayTitle(value)).tag(value)
@@ -371,7 +371,7 @@ private extension View {
     func fieldChrome() -> some View {
         padding(.horizontal, 12)
             .frame(minHeight: 42)
-            .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
-            .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.white.opacity(0.08)))
+            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.primary.opacity(0.08)))
     }
 }

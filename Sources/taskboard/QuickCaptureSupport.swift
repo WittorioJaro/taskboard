@@ -401,18 +401,18 @@ struct QuickCaptureWindowView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "0B0E13").ignoresSafeArea()
+            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Quick Capture")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
 
                         Text("Drop a task into the right board and keep moving.")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.46))
+                            .foregroundStyle(Color.primary.opacity(0.46))
                     }
 
                     Spacer()
@@ -422,9 +422,9 @@ struct QuickCaptureWindowView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.58))
+                            .foregroundStyle(Color.primary.opacity(0.58))
                             .frame(width: 28, height: 28)
-                            .background(Color.white.opacity(0.05), in: Circle())
+                            .background(Color.primary.opacity(0.05), in: Circle())
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
@@ -435,7 +435,7 @@ struct QuickCaptureWindowView: View {
                     TextField("Add a task", text: $controller.draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .focused($isTaskFieldFocused)
                         .defaultFocus($isTaskFieldFocused, true)
                         .lineLimit(1...6)
@@ -453,10 +453,10 @@ struct QuickCaptureWindowView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                         )
                         .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
 
@@ -468,7 +468,7 @@ struct QuickCaptureWindowView: View {
                         VStack(alignment: .leading, spacing: 7) {
                             Text("Board")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color.white.opacity(0.42))
+                                .foregroundStyle(Color.primary.opacity(0.42))
 
                             Menu {
                                 ForEach(controller.boardOptions) { board in
@@ -480,21 +480,21 @@ struct QuickCaptureWindowView: View {
                                 HStack(spacing: 10) {
                                     Text(selectedBoardTitle)
                                         .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(.primary)
                                         .lineLimit(1)
 
                                     Spacer(minLength: 10)
 
                                     Image(systemName: "chevron.up.chevron.down")
                                         .font(.system(size: 11, weight: .bold))
-                                        .foregroundStyle(Color.white.opacity(0.5))
+                                        .foregroundStyle(Color.primary.opacity(0.5))
                                 }
                                 .padding(.horizontal, 14)
                                 .frame(height: 46)
-                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -505,9 +505,9 @@ struct QuickCaptureWindowView: View {
                         Button(action: controller.pasteAttachment) {
                             Image(systemName: "paperclip")
                                 .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.72))
+                                .foregroundStyle(.primary.opacity(0.72))
                                 .frame(width: 46, height: 46)
-                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .help("Paste image from clipboard (⌘V)")
@@ -515,9 +515,9 @@ struct QuickCaptureWindowView: View {
                         Button(action: controller.submitDirectlyToCodex) {
                             Image(systemName: "paperplane.fill")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
                             .frame(width: 46, height: 46)
-                            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .disabled(isSubmitDisabled)
@@ -528,9 +528,9 @@ struct QuickCaptureWindowView: View {
                         Button(action: controller.submitTask) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(.black)
+                                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
                                 .frame(width: 46, height: 46)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .background(Color.primary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .disabled(isSubmitDisabled)

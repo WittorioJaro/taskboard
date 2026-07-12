@@ -73,7 +73,7 @@ struct MainWindowView: View {
                         description: Text("Create a board to start collecting tasks.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .foregroundStyle(Color.white.opacity(0.52))
+                    .foregroundStyle(Color.primary.opacity(0.52))
                 }
             }
             .ignoresSafeArea(.container, edges: .top)
@@ -85,10 +85,8 @@ struct MainWindowView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .sheet(isPresented: $showingCreateBoardSheet) {
             CreateBoardSheet(store: store, isPresented: $showingCreateBoardSheet)
-                .preferredColorScheme(.dark)
         }
         .task {
             ensureSelectedBoard()
@@ -287,7 +285,7 @@ private struct CompactWindowHeader: View {
 
                 Text("taskboard")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.5))
+                    .foregroundStyle(Color.primary.opacity(0.5))
                     .allowsHitTesting(false)
 
                 HStack(spacing: 0) {
@@ -319,7 +317,7 @@ private struct CompactWindowHeader: View {
                     Button(action: onOpenSettings) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.44))
+                            .foregroundStyle(Color.primary.opacity(0.44))
                             .frame(width: 28, height: 26)
                     }
                     .buttonStyle(.plain)
@@ -363,9 +361,9 @@ private struct CompactWindowHeader: View {
                     Button(action: onCreateBoard) {
                         Image(systemName: "plus")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.48))
+                            .foregroundStyle(Color.primary.opacity(0.48))
                             .frame(width: 28, height: 28)
-                            .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .help("New board")
@@ -376,10 +374,10 @@ private struct CompactWindowHeader: View {
             .padding(.vertical, 9)
 
             Rectangle()
-                .fill(Color.white.opacity(0.06))
+                .fill(Color.primary.opacity(0.06))
                 .frame(height: 1)
         }
-        .background(Color(hex: "0C0F13").opacity(0.96))
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.96))
     }
 }
 
@@ -424,20 +422,20 @@ private struct BoardTab: View {
                 if board.openTasks.count > 0 {
                     Text("\(board.openTasks.count)")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundStyle(isSelected ? board.theme.accentColor : Color.white.opacity(0.3))
+                        .foregroundStyle(isSelected ? board.theme.accentColor : Color.primary.opacity(0.3))
                 }
             }
             .font(.system(size: 11, weight: isSelected ? .semibold : .medium, design: .rounded))
-            .foregroundStyle(isSelected ? Color.white.opacity(0.94) : Color.white.opacity(0.46))
+            .foregroundStyle(isSelected ? Color.primary.opacity(0.94) : Color.primary.opacity(0.46))
             .padding(.horizontal, 11)
             .frame(height: 28)
             .background(
-                isSelected ? Color.white.opacity(0.075) : Color.clear,
+                isSelected ? Color.primary.opacity(0.075) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 8, style: .continuous)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.white.opacity(0.08) : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? Color.primary.opacity(0.08) : Color.clear, lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -480,7 +478,7 @@ private struct QuickEntryBar: View {
             HStack(spacing: 6) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.32))
+                    .foregroundStyle(Color.primary.opacity(0.32))
                     .frame(width: 28, height: 28)
 
                 taskComposer
@@ -488,7 +486,7 @@ private struct QuickEntryBar: View {
                 Button(action: pasteAttachment) {
                     Image(systemName: "paperclip")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.42))
+                        .foregroundStyle(Color.primary.opacity(0.42))
                         .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
@@ -505,10 +503,10 @@ private struct QuickEntryBar: View {
         .padding(6)
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color.white.opacity(0.045))
+                .fill(Color.primary.opacity(0.045))
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .stroke(Color.white.opacity(0.07), lineWidth: 1)
+                        .stroke(Color.primary.opacity(0.07), lineWidth: 1)
                 )
         )
     }
@@ -517,7 +515,7 @@ private struct QuickEntryBar: View {
         TextField("Add a task to \(boardTitle)", text: $taskTitle, axis: .vertical)
             .textFieldStyle(.plain)
             .font(.system(size: 13, weight: .medium, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .focused(isQuickEntryFocused)
             .lineLimit(1...3)
             .taskSubmitBehavior(onSubmit: onSubmit)
@@ -543,9 +541,9 @@ private struct QuickEntryBar: View {
         Button(action: onSubmit) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.black)
+                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
                 .frame(width: 30, height: 30)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .background(Color.primary, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isSubmitDisabled)
@@ -580,12 +578,12 @@ private struct BoardColumnView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(board.title)
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.94))
+                            .foregroundStyle(Color.primary.opacity(0.94))
                             .lineLimit(1)
 
                         Text("\(board.openTasks.count) active · \(board.completedCount) archived")
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Color.white.opacity(0.34))
+                            .foregroundStyle(Color.primary.opacity(0.34))
                     }
 
                     Spacer(minLength: 8)
@@ -593,7 +591,7 @@ private struct BoardColumnView: View {
                     Button(action: chooseBoardFolder) {
                         Image(systemName: board.folderPath.isEmpty ? "folder.badge.plus" : "folder.fill")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(board.folderPath.isEmpty ? Color.orange.opacity(0.72) : Color.white.opacity(0.48))
+                            .foregroundStyle(board.folderPath.isEmpty ? Color.orange.opacity(0.72) : Color.primary.opacity(0.48))
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
@@ -624,7 +622,7 @@ private struct BoardColumnView: View {
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.4))
+                            .foregroundStyle(Color.primary.opacity(0.4))
                             .frame(width: 28, height: 28)
                     }
                     .menuStyle(.borderlessButton)
@@ -635,7 +633,7 @@ private struct BoardColumnView: View {
                 .padding(.bottom, 13)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(Color.white.opacity(0.055))
+                        .fill(Color.primary.opacity(0.055))
                         .frame(height: 1)
                 }
 
@@ -722,7 +720,7 @@ private struct BoardColumnView: View {
                 }
 
                 TaskLaneDropZone(
-                    tint: Color.white.opacity(0.48),
+                    tint: Color.primary.opacity(0.48),
                     isTargeted: laneTargetBinding(for: .todo),
                     onEnter: { moveDraggedTask(to: .todo) },
                     onDrop: { performStatusDrop(to: .todo) }
@@ -731,7 +729,7 @@ private struct BoardColumnView: View {
                         title: "TODO",
                         count: todoTasks.count,
                         systemImage: "circle",
-                        tint: Color.white.opacity(0.48)
+                        tint: Color.primary.opacity(0.48)
                     )
                     TaskSectionSurface(
                         isEmpty: todoTasks.isEmpty,
@@ -812,7 +810,6 @@ private struct BoardColumnView: View {
             }
             .sheet(isPresented: $showingCodexSheet) {
                 CodexSendSheet(store: store, boardID: board.id, isPresented: $showingCodexSheet)
-                    .preferredColorScheme(.dark)
             }
             .alert("Could not send to Codex", isPresented: Binding(
                 get: { directSendError != nil },
@@ -998,13 +995,13 @@ private struct TaskSectionHeader: View {
             Text(title)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .tracking(1.1)
-                .foregroundStyle(Color.white.opacity(0.48))
+                .foregroundStyle(Color.primary.opacity(0.48))
 
             Spacer()
 
             Text("\(count)")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(count == 0 ? Color.white.opacity(0.24) : tint)
+                .foregroundStyle(count == 0 ? Color.primary.opacity(0.24) : tint)
         }
         .padding(.bottom, 7)
     }
@@ -1020,7 +1017,7 @@ private struct TaskSectionSurface<Content: View>: View {
             if isEmpty {
                 Text(emptyText)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.25))
+                    .foregroundStyle(Color.primary.opacity(0.25))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 26)
                     .padding(.vertical, 9)
@@ -1116,7 +1113,7 @@ private struct InlineTaskEntryRow: View {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "circle")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(Color.white.opacity(0.28))
+                        .foregroundStyle(Color.primary.opacity(0.28))
                         .frame(width: 14)
                         .padding(.top, 10)
 
@@ -1124,7 +1121,7 @@ private struct InlineTaskEntryRow: View {
                         TextField("New task", text: $taskTitle, axis: .vertical)
                             .textFieldStyle(.plain)
                             .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
+                            .foregroundStyle(.primary.opacity(0.92))
                             .focused(isFocused)
                             .lineLimit(1...8)
                             .taskSubmitBehavior(onSubmit: onSubmit)
@@ -1146,9 +1143,9 @@ private struct InlineTaskEntryRow: View {
                     Button(action: pasteAttachment) {
                         Image(systemName: "paperclip")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.56))
+                            .foregroundStyle(Color.primary.opacity(0.56))
                             .frame(width: 28, height: 28)
-                            .background(Color.white.opacity(0.05), in: Circle())
+                            .background(Color.primary.opacity(0.05), in: Circle())
                     }
                     .buttonStyle(.plain)
                     .help("Paste image from clipboard")
@@ -1169,7 +1166,7 @@ private struct InlineTaskEntryRow: View {
                     Button(action: onCancel) {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.42))
+                            .foregroundStyle(Color.primary.opacity(0.42))
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 8)
@@ -1177,7 +1174,7 @@ private struct InlineTaskEntryRow: View {
                 .padding(.vertical, 10)
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(Color.white.opacity(0.055))
+                        .fill(Color.primary.opacity(0.055))
                         .frame(height: 1)
                 }
             } else {
@@ -1185,12 +1182,12 @@ private struct InlineTaskEntryRow: View {
                     HStack(spacing: 12) {
                         Image(systemName: "plus")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color.white.opacity(0.36))
+                            .foregroundStyle(Color.primary.opacity(0.36))
                             .frame(width: 14)
 
                         Text("Click to add a task")
                             .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.42))
+                            .foregroundStyle(Color.primary.opacity(0.42))
 
                         Spacer()
                     }
@@ -1200,7 +1197,7 @@ private struct InlineTaskEntryRow: View {
                 .buttonStyle(.plain)
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(Color.white.opacity(0.045))
+                        .fill(Color.primary.opacity(0.045))
                         .frame(height: 1)
                 }
             }
@@ -1235,7 +1232,7 @@ private struct MinimalTaskRow: View {
             Button(action: onDone) {
                 Image(systemName: "checkmark.circle")
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color.white.opacity(0.4))
+                    .foregroundStyle(Color.primary.opacity(0.4))
             }
             .buttonStyle(.plain)
             .help("Mark done")
@@ -1246,14 +1243,14 @@ private struct MinimalTaskRow: View {
                     TextField("Task title", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.96))
+                        .foregroundStyle(.primary.opacity(0.96))
                         .focused($isTitleFocused)
                         .lineLimit(2...10)
                         .onExitCommand(perform: cancelTitleEdit)
                     } else {
                     Text(task.title)
                         .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.92))
+                        .foregroundStyle(.primary.opacity(0.92))
                         .lineLimit(nil)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1292,7 +1289,7 @@ private struct MinimalTaskRow: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(codexRun == nil ? Color.white.opacity(0.34) : codexStatusColor)
+                    .foregroundStyle(codexRun == nil ? Color.primary.opacity(0.34) : codexStatusColor)
                     .frame(width: 26, height: 26)
                     .overlay(alignment: .topTrailing) {
                         if codexRun != nil {
@@ -1312,7 +1309,7 @@ private struct MinimalTaskRow: View {
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Color.white.opacity(0.045))
+                .fill(Color.primary.opacity(0.045))
                 .frame(height: 1)
                 .padding(.leading, 26)
         }
@@ -1320,6 +1317,10 @@ private struct MinimalTaskRow: View {
         .animation(.easeOut(duration: 0.15), value: isDragged)
         .onDrag {
             onDragStart()
+            ExternalDragPreviewController.shared.begin(
+                title: task.title,
+                accent: board.theme.accentColor
+            )
             return taskDragProvider()
         } preview: {
             DragPreview()
@@ -1441,12 +1442,12 @@ private struct CodexActivityPanel: View {
             HStack {
                 Text("CODEX ACTIVITY")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.42))
+                    .foregroundStyle(Color.primary.opacity(0.42))
                 Spacer()
                 Button("Clear finished", action: onClear)
                     .buttonStyle(.plain)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.35))
+                    .foregroundStyle(Color.primary.opacity(0.35))
                     .disabled(!hasFinishedRuns)
                     .opacity(hasFinishedRuns ? 1 : 0.4)
             }
@@ -1462,7 +1463,7 @@ private struct CodexActivityPanel: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(run.title)
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.82))
+                            .foregroundStyle(.primary.opacity(0.82))
                             .lineLimit(2)
 
                         HStack(spacing: 5) {
@@ -1484,14 +1485,14 @@ private struct CodexActivityPanel: View {
 
                     Text(run.updatedAt, style: .relative)
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.3))
+                        .foregroundStyle(Color.primary.opacity(0.3))
                 }
                 .help(run.errorMessage ?? run.threadID.map { "Codex thread \($0)" } ?? run.phase.title)
             }
         }
         .padding(12)
-        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.06)))
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.06)))
     }
 
     private func color(for phase: CodexRunPhase) -> Color {
@@ -1565,9 +1566,98 @@ private struct DragPreview: View {
     }
 }
 
-private struct TaskBoardBackdrop: View {
+@MainActor
+private final class ExternalDragPreviewController {
+    static let shared = ExternalDragPreviewController()
+
+    private var panel: NSPanel?
+    private var monitorTask: Task<Void, Never>?
+    private var sourceWindowFrame: NSRect = .zero
+
+    func begin(title: String, accent: Color) {
+        stop()
+
+        sourceWindowFrame = NSApp.keyWindow?.frame ?? .zero
+        let preview = ExternalTaskDragPreview(title: title, accent: accent)
+        let hostingView = NSHostingView(rootView: preview)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 280, height: 72)
+
+        let panel = NSPanel(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.contentView = hostingView
+        self.panel = panel
+
+        monitorTask = Task { [weak self] in
+            while !Task.isCancelled, NSEvent.pressedMouseButtons & 0x1 != 0 {
+                self?.updatePanelPosition()
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            self?.stop()
+        }
+    }
+
+    private func updatePanelPosition() {
+        guard let panel else { return }
+        let pointer = NSEvent.mouseLocation
+
+        guard !sourceWindowFrame.contains(pointer) else {
+            panel.orderOut(nil)
+            return
+        }
+
+        panel.setFrameOrigin(NSPoint(x: pointer.x + 16, y: pointer.y - 36))
+        panel.orderFrontRegardless()
+    }
+
+    private func stop() {
+        monitorTask?.cancel()
+        monitorTask = nil
+        panel?.orderOut(nil)
+        panel = nil
+    }
+}
+
+private struct ExternalTaskDragPreview: View {
+    let title: String
+    let accent: Color
+
     var body: some View {
-        Color(hex: "080A0D")
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.up.forward.app")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(accent)
+
+            Text(title)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(hex: "FFFFFF").opacity(0.94))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .frame(width: 280, height: 72)
+        .background(Color(hex: "171A1F"), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(accent.opacity(0.55), lineWidth: 1)
+        }
+    }
+}
+
+private struct TaskBoardBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        (colorScheme == .light ? Color(hex: "FCFCFD") : Color(hex: "080A0D"))
             .ignoresSafeArea()
     }
 }
@@ -1584,22 +1674,22 @@ private struct CreateBoardSheet: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("New Board")
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
 
             Text("Keep it short. You can add tasks from the top bar or directly inside the list.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.54))
+                .foregroundStyle(Color.primary.opacity(0.54))
 
             TextField("Board name", text: $boardTitle)
                 .textFieldStyle(.plain)
                 .font(.system(size: 15, weight: .medium, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
                 .focused($isBoardNameFocused)
                 .onSubmit(createBoard)
@@ -1607,7 +1697,7 @@ private struct CreateBoardSheet: View {
             HStack(spacing: 10) {
                 Text(folderPath.isEmpty ? "Choose the repository for this board" : folderPath)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(folderPath.isEmpty ? 0.42 : 0.72))
+                    .foregroundStyle(Color.primary.opacity(folderPath.isEmpty ? 0.42 : 0.72))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1621,19 +1711,19 @@ private struct CreateBoardSheet: View {
                     isPresented = false
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.white.opacity(0.62))
+                .foregroundStyle(Color.primary.opacity(0.62))
 
                 Spacer()
 
                 Button("Create", action: createBoard)
                     .buttonStyle(.borderedProminent)
-                    .tint(.white)
-                    .foregroundStyle(.black)
+                    .tint(.primary)
+                    .foregroundStyle(Color(nsColor: .windowBackgroundColor))
             }
         }
         .padding(24)
         .frame(width: 440)
-        .background(Color(hex: "11151B"))
+        .background(Color(nsColor: .windowBackgroundColor))
         .task {
             try? await Task.sleep(for: .milliseconds(100))
             isBoardNameFocused = true

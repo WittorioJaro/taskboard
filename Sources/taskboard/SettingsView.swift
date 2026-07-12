@@ -3,7 +3,10 @@ import Carbon
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var quickCaptureController = QuickCaptureController.shared
+    @AppStorage(AppearancePreferences.modeDefaultsKey)
+    private var appearanceMode = AppearancePreferences.initialModeRawValue
     @AppStorage(WindowPreferences.openMainWindowInCurrentSpaceDefaultsKey)
     private var openMainWindowInCurrentSpace = WindowPreferences.openMainWindowInCurrentSpaceDefaultValue
     @AppStorage(QuickCapturePreferences.closeAfterSubmitDefaultsKey)
@@ -14,20 +17,46 @@ struct SettingsView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "0B0E13").ignoresSafeArea()
+            settingsBackground.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                 Text("Settings")
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Appearance")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Appearance", selection: $appearanceMode) {
+                            ForEach(AppearancePreferences.Mode.allCases) { mode in
+                                Text(mode.title).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text("System follows your Mac's current appearance automatically.")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(18)
+                    .background(settingsCardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(settingsBorder, lineWidth: 1)
+                    }
+                }
 
                 SupabaseSyncSettingsSection()
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Window")
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.48))
+                        .foregroundStyle(Color.primary.opacity(0.48))
                         .textCase(.uppercase)
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -35,11 +64,11 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Open on current desktop")
                                     .font(.system(size: 15, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(.primary)
 
                                 Text("Clicking the Dock icon brings taskboard to the desktop you're using instead of switching Spaces.")
                                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundStyle(Color.white.opacity(0.46))
+                                    .foregroundStyle(Color.primary.opacity(0.46))
                             }
                         }
                         .toggleStyle(.switch)
@@ -47,10 +76,10 @@ struct SettingsView: View {
                     .padding(18)
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
+                            .fill(Color.primary.opacity(0.05))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                             )
                     )
                 }
@@ -58,14 +87,14 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Quick Capture")
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.48))
+                        .foregroundStyle(Color.primary.opacity(0.48))
                         .textCase(.uppercase)
 
                     VStack(alignment: .leading, spacing: 14) {
                         HStack {
                             Text("Shortcut")
                                 .font(.system(size: 15, weight: .medium, design: .rounded))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(.primary)
 
                             Spacer()
 
@@ -80,11 +109,11 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Close after submit")
                                     .font(.system(size: 15, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(.primary)
 
                                 Text("Escape, the close button, and pressing the shortcut again dismiss the popup.")
                                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundStyle(Color.white.opacity(0.46))
+                                    .foregroundStyle(Color.primary.opacity(0.46))
                             }
                         }
                         .toggleStyle(.switch)
@@ -96,10 +125,10 @@ struct SettingsView: View {
                     .padding(18)
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
+                            .fill(Color.primary.opacity(0.05))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                             )
                     )
                 }
@@ -107,25 +136,25 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Codex")
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.48))
+                        .foregroundStyle(Color.primary.opacity(0.48))
                         .textCase(.uppercase)
 
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Each board owns its own repository folder. Set or change it with the folder button in the board header.")
                             .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.56))
+                            .foregroundStyle(Color.primary.opacity(0.56))
 
                         Text("Codex work runs in the background. Created threads remain available in Codex history without opening or focusing the Codex app.")
                             .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.46))
+                            .foregroundStyle(Color.primary.opacity(0.46))
                     }
                     .padding(18)
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
+                            .fill(Color.primary.opacity(0.05))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                             )
                     )
                 }
@@ -147,6 +176,18 @@ struct SettingsView: View {
         }
     }
 
+    private var settingsBackground: Color {
+        colorScheme == .light ? Color(hex: "FCFCFD") : Color(hex: "0B0E13")
+    }
+
+    private var settingsCardBackground: Color {
+        colorScheme == .light ? Color(hex: "FFFFFF").opacity(0.72) : Color.primary.opacity(0.05)
+    }
+
+    private var settingsBorder: Color {
+        colorScheme == .light ? Color.black.opacity(0.09) : Color.primary.opacity(0.08)
+    }
+
 }
 
 private struct SupabaseSyncSettingsSection: View {
@@ -163,7 +204,7 @@ private struct SupabaseSyncSettingsSection: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sync")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.48))
+                .foregroundStyle(Color.primary.opacity(0.48))
                 .textCase(.uppercase)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -195,15 +236,15 @@ private struct SupabaseSyncSettingsSection: View {
 
                 Text(statusMessage)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.5))
+                    .foregroundStyle(Color.primary.opacity(0.5))
             }
             .padding(18)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.05))
+                    .fill(Color.primary.opacity(0.05))
                     .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                     )
             )
         }
@@ -251,13 +292,13 @@ private struct ShortcutRecorderButton: View {
             Button(action: toggleRecording) {
                 Text(isRecording ? "Press Keys..." : currentShortcutDisplay)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.84))
+                    .foregroundStyle(.primary.opacity(0.84))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .background(Color.white.opacity(isRecording ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.primary.opacity(isRecording ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -270,7 +311,7 @@ private struct ShortcutRecorderButton: View {
             }
             .buttonStyle(.plain)
             .font(.system(size: 12, weight: .medium, design: .rounded))
-            .foregroundStyle(Color.white.opacity(0.56))
+            .foregroundStyle(Color.primary.opacity(0.56))
         }
         .onDisappear {
             stopRecording()
