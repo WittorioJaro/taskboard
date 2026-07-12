@@ -23,3 +23,13 @@ export function hasUserContent(snapshot: Snapshot): boolean {
     snapshot.boards.some((board) => board.title !== "Inbox" || board.tasks.length > 0 || board.folderPath.length > 0)
   );
 }
+
+export function mergeRemoteSnapshot(local: Snapshot, remote: Snapshot): Snapshot {
+  if (hasUserContent(local) && !hasUserContent(remote)) return local;
+  const localSelectionStillExists = remote.boards.some((board) => board.id === local.selectedBoardID);
+  return {
+    ...remote,
+    // Selection is device-local UI state; remote content must not navigate this client.
+    selectedBoardID: localSelectionStillExists ? local.selectedBoardID : remote.selectedBoardID,
+  };
+}

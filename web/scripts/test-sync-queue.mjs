@@ -70,6 +70,21 @@ const client = {
 const vite = await createServer({ server: { middlewareMode: true }, appType: "custom" });
 try {
   const { SnapshotSync } = await vite.ssrLoadModule("/src/supabase.ts");
+  const { mergeRemoteSnapshot } = await vite.ssrLoadModule("/src/storage.ts");
+
+  const otherBoard = { ...base.boards[0], id: "other", title: "Other", tasks: [] };
+  const localOnOtherTab = { ...base, selectedBoardID: "other", boards: [base.boards[0], otherBoard] };
+  const remoteOnOldTab = {
+    ...running,
+    selectedBoardID: "board",
+    boards: [running.boards[0], otherBoard],
+  };
+  assert.equal(
+    mergeRemoteSnapshot(localOnOtherTab, remoteOnOldTab).selectedBoardID,
+    "other",
+    "remote content must not switch the browser back to another tab",
+  );
+
   const sync = new SnapshotSync(
     client,
     "owner",

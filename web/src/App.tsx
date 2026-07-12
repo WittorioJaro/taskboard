@@ -11,7 +11,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { hasUserContent, loadSnapshot, saveSnapshot } from "./storage";
+import { loadSnapshot, mergeRemoteSnapshot, saveSnapshot } from "./storage";
 import {
   clearConfig,
   loadConfig,
@@ -64,7 +64,7 @@ function App() {
       pendingRemoteRef.current = remote;
       return;
     }
-    setSnapshot((local) => (hasUserContent(local) && !hasUserContent(remote) ? local : remote));
+    setSnapshot((local) => mergeRemoteSnapshot(local, remote));
   }, []);
 
   // Once a touch drag is active, block native scrolling for the rest of the

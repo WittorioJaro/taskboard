@@ -92,7 +92,7 @@ enum CodexIntegrationError: LocalizedError {
         case let .invalidResponse(message):
             "Codex returned an unexpected response: \(message)"
         case let .requestTimedOut(method):
-            "Codex did not respond to \(method) within 20 seconds. The request was stopped instead of waiting forever."
+            "Codex did not respond to \(method) within 2 minutes. The background connection was reset."
         case .turnTimedOut:
             "Codex did not finish the task within 10 minutes. The background connection was reset."
         case let .appServerExited(code):
@@ -276,7 +276,6 @@ actor CodexTaskDispatcher {
             cwd: prepared.worktreeURL.path,
             model: model
         )
-        await session.refreshThreadHistory(threadID: threadID)
 
         for (index, task) in tasks.enumerated() {
             await progress(index, tasks.count)
@@ -301,7 +300,6 @@ actor CodexTaskDispatcher {
                 totalCount: tasks.count
             ))
             try await session.waitForTurnCompletion()
-            await session.refreshThreadHistory(threadID: threadID)
             await progress(index + 1, tasks.count)
         }
         return CodexLaunchReceipt(
@@ -358,7 +356,6 @@ actor CodexTaskDispatcher {
         let session = try await sharedSession()
         await status(.init(.creatingThread))
         let threadID = try await session.startThread(cwd: root.path, model: .recommended)
-        await session.refreshThreadHistory(threadID: threadID)
         await status(.init(.sending, threadID: threadID))
         try await session.startTurn(
             threadID: threadID,
@@ -370,7 +367,6 @@ actor CodexTaskDispatcher {
         )
         await status(.init(.running, threadID: threadID))
         try await session.waitForTurnCompletion()
-        await session.refreshThreadHistory(threadID: threadID)
         return CodexLaunchReceipt(
             threadID: threadID,
             branchName: nil,
@@ -564,6 +560,7 @@ private actor CodexAppServerSession {
     private var turnWaiter: CheckedContinuation<Void, Error>?
     private var completedTurnPending = false
     private var failedTurnPendingMessage: String?
+    private var earlyTurnCompletions: [String: CodexTurnOutcome] = [:]
     private var activeTurnID: String?
     private var turnTimeoutTask: Task<Void, Never>?
     private var isTerminated = false
@@ -680,20 +677,6 @@ private actor CodexAppServerSession {
         return id
     }
 
-    func refreshThreadHistory(threadID: String) async {
-        _ = try? await request(method: "thread/read", params: [
-            "threadId": threadID,
-            "includeTurns": false,
-        ])
-        _ = try? await request(method: "thread/list", params: [
-            "limit": 50,
-            "sortKey": "updated_at",
-            "sortDirection": "desc",
-            "sourceKinds": ["appServer"],
-            "useStateDbOnly": false,
-        ])
-    }
-
     func runTurn(
         threadID: String,
         cwd: String,
@@ -740,6 +723,9 @@ private actor CodexAppServerSession {
             throw CodexIntegrationError.invalidResponse("Missing turn id from turn/start.")
         }
         activeTurnID = turnID
+        if let outcome = earlyTurnCompletions.removeValue(forKey: turnID) {
+            completeActiveTurn(with: outcome)
+        }
     }
 
     func waitForTurnCompletion() async throws {
@@ -793,7 +779,7 @@ private actor CodexAppServerSession {
         nextRequestID += 1
         return try await withCheckedThrowingContinuation { continuation in
             let timeoutTask = Task.detached { [weak self] in
-                try? await Task.sleep(for: .seconds(20))
+                try? await Task.sleep(for: .seconds(120))
                 await self?.expireRequest(id: id)
             }
             pendingResponses[id] = PendingResponse(
@@ -842,9 +828,15 @@ private actor CodexAppServerSession {
             return
         }
 
-        if let completion = CodexAppServerMessage.turnCompletion(from: payload),
-           completion.turnID == activeTurnID {
-            completeActiveTurn(with: completion.outcome)
+        if let completion = CodexAppServerMessage.turnCompletion(from: payload) {
+            if completion.turnID == activeTurnID {
+                completeActiveTurn(with: completion.outcome)
+            } else {
+                // A very short turn can complete before the turn/start response is
+                // handled and its id becomes active. Keep that notification so the
+                // subsequent wait does not stall until the turn timeout.
+                earlyTurnCompletions[completion.turnID] = completion.outcome
+            }
         }
     }
 

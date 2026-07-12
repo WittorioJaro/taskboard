@@ -71,7 +71,7 @@ struct MobileBoardView: View {
                             isSelected: store.selectedBoardID == board.id,
                             onSelect: {
                                 withAnimation(.snappy(duration: 0.25)) {
-                                    store.selectedBoardID = board.id
+                                    store.selectBoard(id: board.id)
                                 }
                             }
                         )

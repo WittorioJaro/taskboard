@@ -247,7 +247,7 @@ final class QuickCaptureController: NSObject, ObservableObject {
             return
         }
 
-        store.selectedBoardID = boardID
+        store.selectBoard(id: boardID)
         store.addTask(to: boardID, title: trimmed, attachments: draftAttachments)
         draftTitle = ""
         draftAttachments = []
@@ -277,7 +277,7 @@ final class QuickCaptureController: NSObject, ObservableObject {
         }
 
         let attachments = draftAttachments
-        store.selectedBoardID = board.id
+        store.selectBoard(id: board.id)
         draftTitle = ""
         draftAttachments = []
         syncBoards()

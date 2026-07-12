@@ -28,8 +28,9 @@ struct MainWindowView: View {
             VStack(alignment: .leading, spacing: 0) {
                 CompactWindowHeader(
                     boards: store.boards,
-                    selectedBoardID: $store.selectedBoardID,
+                    selectedBoardID: store.selectedBoardID,
                     draggedBoardID: $draggedBoardID,
+                    onSelectBoard: store.selectBoard,
                     onCreateBoard: { showingCreateBoardSheet = true },
                     onOpenSettings: { openSettings() },
                     onMoveBoard: store.moveBoard,
@@ -188,7 +189,7 @@ struct MainWindowView: View {
             return
         }
 
-        store.selectedBoardID = boardID
+        store.selectBoard(id: boardID)
         store.addTask(to: boardID, title: trimmed, attachments: quickTaskAttachments)
         quickTaskTitle = ""
         quickTaskAttachments = []
@@ -261,8 +262,9 @@ private final class WindowDragHandleView: NSView {
 
 private struct CompactWindowHeader: View {
     let boards: [TaskBoard]
-    @Binding var selectedBoardID: TaskBoard.ID?
+    let selectedBoardID: TaskBoard.ID?
     @Binding var draggedBoardID: TaskBoard.ID?
+    let onSelectBoard: (TaskBoard.ID) -> Void
     let onCreateBoard: () -> Void
     let onOpenSettings: () -> Void
     let onMoveBoard: (TaskBoard.ID, TaskBoard.ID) -> Void
@@ -340,7 +342,7 @@ private struct CompactWindowHeader: View {
                         BoardTab(
                             board: board,
                             isSelected: selectedBoardID == board.id,
-                            onSelect: { selectedBoardID = board.id }
+                            onSelect: { onSelectBoard(board.id) }
                         )
                         .onDrag {
                             draggedBoardID = board.id
@@ -598,7 +600,7 @@ private struct BoardColumnView: View {
                     .help(board.folderPath.isEmpty ? "Choose this board's folder" : board.folderPath)
 
                     Button {
-                        store.selectedBoardID = board.id
+                        store.selectBoard(id: board.id)
                         showingCodexSheet = true
                     } label: {
                         Image(systemName: "paperplane")
@@ -890,7 +892,7 @@ private struct BoardColumnView: View {
     }
 
     private func beginInlineEntry() {
-        store.selectedBoardID = boardID
+        store.selectBoard(id: boardID)
         if let board, !board.isExpanded {
             store.toggleBoardExpansion(id: board.id)
         }
@@ -917,7 +919,7 @@ private struct BoardColumnView: View {
             return
         }
 
-        store.selectedBoardID = boardID
+        store.selectBoard(id: boardID)
         store.addTask(to: boardID, title: trimmed, attachments: inlineTaskAttachments)
         inlineTaskTitle = ""
         inlineTaskAttachments = []

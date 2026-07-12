@@ -64,6 +64,14 @@ final class TaskBoardStore {
         boards.first(where: { $0.id == selectedBoardID })
     }
 
+    /// Changes the board shown on this device. Selection is local UI state:
+    /// remote snapshots may update board content, but must not navigate the user.
+    func selectBoard(id: TaskBoard.ID) {
+        guard boards.contains(where: { $0.id == id }), selectedBoardID != id else { return }
+        selectedBoardID = id
+        writeSnapshotToDisk(currentSnapshot)
+    }
+
     var pendingTaskCount: Int {
         boards.reduce(into: 0) { partialResult, board in
             partialResult += board.openTasks.count
@@ -449,11 +457,14 @@ final class TaskBoardStore {
 
     private func apply(_ snapshot: TaskBoardSnapshot) {
         guard !snapshot.boards.isEmpty else { return }
+        let localSelection = selectedBoardID
         boards = snapshot.boards
-        selectedBoardID = snapshot.selectedBoardID.flatMap { selected in
+        selectedBoardID = localSelection.flatMap { selected in
+            snapshot.boards.contains(where: { $0.id == selected }) ? selected : nil
+        } ?? snapshot.selectedBoardID.flatMap { selected in
             snapshot.boards.contains(where: { $0.id == selected }) ? selected : nil
         } ?? snapshot.boards.first?.id
-        writeSnapshotToDisk(snapshot)
+        writeSnapshotToDisk(currentSnapshot)
     }
 
     private func persist() {
