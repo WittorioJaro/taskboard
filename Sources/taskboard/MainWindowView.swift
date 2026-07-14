@@ -336,7 +336,7 @@ private struct CompactWindowHeader: View {
                 }
             }
 
-            ScrollView(.horizontal) {
+            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(boards) { board in
                         BoardTab(
@@ -372,7 +372,6 @@ private struct CompactWindowHeader: View {
                 }
                 .padding(.horizontal, 16)
             }
-            .scrollIndicators(.hidden)
             .padding(.vertical, 9)
 
             Rectangle()
