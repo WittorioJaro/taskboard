@@ -45,6 +45,10 @@ export function stableStringify(value: unknown): string {
   return `{${entries.join(",")}}`;
 }
 
+export function snapshotForSync(snapshot: Snapshot): Snapshot {
+  return { ...snapshot, selectedBoardID: null };
+}
+
 export class SnapshotSync {
   private channel: RealtimeChannel | null = null;
   private saveTimer: number | null = null;
@@ -89,7 +93,7 @@ export class SnapshotSync {
 
     if (data?.payload) {
       const remote = data.payload as Snapshot;
-      this.lastKnownJSON = stableStringify(remote);
+      this.lastKnownJSON = stableStringify(snapshotForSync(remote));
       this.lastKnownVersion = SnapshotSync.version(data.updated_at as string | undefined);
       this.onRemote(remote);
     } else {
@@ -112,7 +116,7 @@ export class SnapshotSync {
           if (!payload) return;
           const version = SnapshotSync.version(row.updated_at);
           if (version > 0 && version <= this.lastKnownVersion) return;
-          const json = stableStringify(payload);
+          const json = stableStringify(snapshotForSync(payload));
           if (json === this.lastKnownJSON) {
             this.lastKnownVersion = Math.max(this.lastKnownVersion, version);
             return;
@@ -132,10 +136,11 @@ export class SnapshotSync {
   }
 
   scheduleSave(snapshot: Snapshot): void {
-    const json = stableStringify(snapshot);
+    const syncedSnapshot = snapshotForSync(snapshot);
+    const json = stableStringify(syncedSnapshot);
     if (!this.hasLocalIntent && !this.isSaving && this.queuedSnapshot === null && json === this.lastKnownJSON) return;
     this.hasLocalIntent = true;
-    this.queuedSnapshot = snapshot;
+    this.queuedSnapshot = syncedSnapshot;
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     if (this.retryTimer !== null) {
       window.clearTimeout(this.retryTimer);
@@ -187,18 +192,18 @@ export class SnapshotSync {
   }
 
   private async persistSnapshot(snapshot: Snapshot): Promise<void> {
+    const syncedSnapshot = snapshotForSync(snapshot);
     const { data, error } = await this.client.from("taskboard_snapshots").upsert({
       owner_id: this.ownerID,
       id: "primary",
-      payload: snapshot,
+      payload: syncedSnapshot,
       updated_at: new Date().toISOString(),
-    }).select("payload,updated_at").single();
+    }).select("updated_at").single();
     if (error) {
       this.onState("error", error.message);
       throw error;
     }
-    const saved = (data?.payload as Snapshot | undefined) ?? snapshot;
-    this.lastKnownJSON = stableStringify(saved);
+    this.lastKnownJSON = stableStringify(syncedSnapshot);
     this.lastKnownVersion = Math.max(
       this.lastKnownVersion,
       SnapshotSync.version(data?.updated_at as string | undefined),

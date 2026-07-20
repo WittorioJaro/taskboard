@@ -68,6 +68,22 @@ struct CodexLaunchReceipt: Sendable {
     let completedTaskCount: Int
 }
 
+struct CodexGroupedLaunchReceipt: Sendable {
+    let threads: [CodexLaunchReceipt]
+
+    var completedTaskCount: Int {
+        threads.reduce(0) { $0 + $1.completedTaskCount }
+    }
+}
+
+struct CodexGroupedDispatchStatus: Sendable {
+    let groupIndex: Int?
+    let groupCount: Int
+    let completedTaskCount: Int
+    let totalTaskCount: Int
+    let groupStatus: CodexDispatchStatus
+}
+
 enum CodexIntegrationError: LocalizedError {
     case workspacePathMissing
     case workspaceNotFound(String)
@@ -232,82 +248,164 @@ actor CodexTaskDispatcher {
         status: @escaping @Sendable (CodexDispatchStatus) async -> Void = { _ in },
         progress: @escaping @Sendable (Int, Int) async -> Void
     ) async throws -> CodexLaunchReceipt {
-        await status(.init(.waiting, totalCount: tasks.count))
+        let receipt = try await sendGroupedQueue(
+            boardTitle: boardTitle,
+            taskGroups: [tasks],
+            workspacePath: workspacePath,
+            branchChoice: branchChoice,
+            model: model,
+            effort: effort,
+            status: { update in await status(update.groupStatus) },
+            progress: progress
+        )
+        guard let thread = receipt.threads.first else {
+            throw CodexIntegrationError.invalidResponse("Codex did not create a queue thread.")
+        }
+        return thread
+    }
+
+    func sendGroupedQueue(
+        boardTitle: String,
+        taskGroups: [[TaskItem]],
+        workspacePath: String,
+        branchChoice: CodexBranchChoice,
+        model: CodexModel,
+        effort: CodexReasoningEffort,
+        status: @escaping @Sendable (CodexGroupedDispatchStatus) async -> Void = { _ in },
+        groupCompleted: @escaping @Sendable (Int, CodexLaunchReceipt) async -> Void = { _, _ in },
+        progress: @escaping @Sendable (Int, Int) async -> Void
+    ) async throws -> CodexGroupedLaunchReceipt {
+        let groups = taskGroups.filter { !$0.isEmpty }
+        guard !groups.isEmpty else {
+            throw CodexIntegrationError.invalidResponse("Select at least one prompt.")
+        }
+        let totalCount = groups.reduce(0) { $0 + $1.count }
+        let groupCount = groups.count
+        await status(.init(
+            groupIndex: nil,
+            groupCount: groupCount,
+            completedTaskCount: 0,
+            totalTaskCount: totalCount,
+            groupStatus: .init(.waiting, totalCount: totalCount)
+        ))
         await executionGate.acquire()
         do {
-            await status(.init(.connecting, totalCount: tasks.count))
-            let receipt = try await performQueue(
+            await status(.init(
+                groupIndex: nil,
+                groupCount: groupCount,
+                completedTaskCount: 0,
+                totalTaskCount: totalCount,
+                groupStatus: .init(.connecting, totalCount: totalCount)
+            ))
+            let receipt = try await performGroupedQueue(
                 boardTitle: boardTitle,
-                tasks: tasks,
+                taskGroups: groups,
                 workspacePath: workspacePath,
                 branchChoice: branchChoice,
                 model: model,
                 effort: effort,
                 status: status,
+                groupCompleted: groupCompleted,
                 progress: progress
             )
             await executionGate.release()
             return receipt
         } catch {
-            await status(.init(.failed, totalCount: tasks.count))
+            await status(.init(
+                groupIndex: nil,
+                groupCount: groupCount,
+                completedTaskCount: 0,
+                totalTaskCount: totalCount,
+                groupStatus: .init(.failed, totalCount: totalCount)
+            ))
             await resetSession()
             await executionGate.release()
             throw error
         }
     }
 
-    private func performQueue(
+    private func performGroupedQueue(
         boardTitle: String,
-        tasks: [TaskItem],
+        taskGroups: [[TaskItem]],
         workspacePath: String,
         branchChoice: CodexBranchChoice,
         model: CodexModel,
         effort: CodexReasoningEffort,
-        status: @escaping @Sendable (CodexDispatchStatus) async -> Void,
+        status: @escaping @Sendable (CodexGroupedDispatchStatus) async -> Void,
+        groupCompleted: @escaping @Sendable (Int, CodexLaunchReceipt) async -> Void,
         progress: @escaping @Sendable (Int, Int) async -> Void
-    ) async throws -> CodexLaunchReceipt {
+    ) async throws -> CodexGroupedLaunchReceipt {
         let prepared = try Self.prepareQueueWorkspace(
             workspacePath: workspacePath,
             branchChoice: branchChoice
         )
         let session = try await sharedSession()
-        await status(.init(.creatingThread, totalCount: tasks.count))
-        let threadID = try await session.startThread(
-            cwd: prepared.worktreeURL.path,
-            model: model
-        )
+        let totalCount = taskGroups.reduce(0) { $0 + $1.count }
+        var completedCount = 0
+        var receipts: [CodexLaunchReceipt] = []
 
-        for (index, task) in tasks.enumerated() {
-            await progress(index, tasks.count)
+        for (groupIndex, tasks) in taskGroups.enumerated() {
             await status(.init(
-                .sending,
-                threadID: threadID,
-                completedCount: index,
-                totalCount: tasks.count
+                groupIndex: groupIndex,
+                groupCount: taskGroups.count,
+                completedTaskCount: completedCount,
+                totalTaskCount: totalCount,
+                groupStatus: .init(.creatingThread, totalCount: tasks.count)
             ))
-            try await session.startTurn(
-                threadID: threadID,
+            let threadID = try await session.startThread(
                 cwd: prepared.worktreeURL.path,
-                prompt: task.title,
-                attachments: task.attachments,
-                model: model,
-                effort: effort
+                model: model
             )
-            await status(.init(
-                .running,
+
+            for (taskIndex, task) in tasks.enumerated() {
+                await progress(completedCount, totalCount)
+                await status(.init(
+                    groupIndex: groupIndex,
+                    groupCount: taskGroups.count,
+                    completedTaskCount: completedCount,
+                    totalTaskCount: totalCount,
+                    groupStatus: .init(
+                        .sending,
+                        threadID: threadID,
+                        completedCount: taskIndex,
+                        totalCount: tasks.count
+                    )
+                ))
+                try await session.startTurn(
+                    threadID: threadID,
+                    cwd: prepared.worktreeURL.path,
+                    prompt: task.title,
+                    attachments: task.attachments,
+                    model: model,
+                    effort: effort
+                )
+                await status(.init(
+                    groupIndex: groupIndex,
+                    groupCount: taskGroups.count,
+                    completedTaskCount: completedCount,
+                    totalTaskCount: totalCount,
+                    groupStatus: .init(
+                        .running,
+                        threadID: threadID,
+                        completedCount: taskIndex,
+                        totalCount: tasks.count
+                    )
+                ))
+                try await session.waitForTurnCompletion()
+                completedCount += 1
+                await progress(completedCount, totalCount)
+            }
+
+            let receipt = CodexLaunchReceipt(
                 threadID: threadID,
-                completedCount: index,
-                totalCount: tasks.count
-            ))
-            try await session.waitForTurnCompletion()
-            await progress(index + 1, tasks.count)
+                branchName: prepared.branchName,
+                worktreePath: prepared.worktreeURL.path,
+                completedTaskCount: tasks.count
+            )
+            receipts.append(receipt)
+            await groupCompleted(groupIndex, receipt)
         }
-        return CodexLaunchReceipt(
-            threadID: threadID,
-            branchName: prepared.branchName,
-            worktreePath: prepared.worktreeURL.path,
-            completedTaskCount: tasks.count
-        )
+        return CodexGroupedLaunchReceipt(threads: receipts)
     }
 
     func sendDirect(

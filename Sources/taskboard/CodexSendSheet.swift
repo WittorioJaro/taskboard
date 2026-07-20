@@ -7,6 +7,7 @@ struct CodexSendSheet: View {
     @Binding var isPresented: Bool
 
     @State private var selectedTaskIDs: Set<TaskItem.ID> = []
+    @State private var threadStartTaskIDs: Set<TaskItem.ID> = []
     @State private var model: CodexModel = .recommended
     @State private var availableModels = CodexModel.fallbackModels
     @State private var isLoadingModels = false
@@ -18,14 +19,27 @@ struct CodexSendSheet: View {
     @State private var isLoadingBranches = false
     @State private var isSending = false
     @State private var completedCount = 0
+    @State private var activeGroupIndex: Int?
+    @State private var completedGroupIndices: Set<Int> = []
     @State private var errorMessage: String?
-    @State private var receipt: CodexLaunchReceipt?
+    @State private var receipts: [CodexLaunchReceipt] = []
     @State private var dispatchStatus = CodexDispatchStatus(.waiting)
     @State private var runMonitor = CodexRunMonitor.shared
 
     private var board: TaskBoard? { store.board(for: boardID) }
     private var selectedTasks: [TaskItem] {
         board?.openTasks.filter { selectedTaskIDs.contains($0.id) } ?? []
+    }
+    private var taskGroups: [[TaskItem]] {
+        CodexThreadPlan.groups(
+            orderedTasks: selectedTasks,
+            threadStartTaskIDs: threadStartTaskIDs
+        )
+    }
+    private var threadNumberByTaskID: [TaskItem.ID: Int] {
+        Dictionary(uniqueKeysWithValues: taskGroups.enumerated().flatMap { groupIndex, tasks in
+            tasks.map { ($0.id, groupIndex + 1) }
+        })
     }
 
     var body: some View {
@@ -44,7 +58,7 @@ struct CodexSendSheet: View {
                 .padding(24)
             }
         }
-        .frame(width: 720, height: 780)
+        .frame(width: 740, height: 820)
         .task {
             await loadModels()
             await loadBranches()
@@ -56,7 +70,7 @@ struct CodexSendSheet: View {
             Text("Codex Queue")
                 .font(.system(size: 25, weight: .semibold, design: .rounded))
                 .foregroundStyle(.primary)
-            Text("Send prompts from \(board.title) one by one into one persistent Codex thread.")
+            Text("Split selected prompts across focused threads that all work on one branch.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(Color.primary.opacity(0.52))
         }
@@ -81,23 +95,37 @@ struct CodexSendSheet: View {
     }
 
     private func taskSection(_ board: TaskBoard) -> some View {
-        section("Prompts · \(selectedTasks.count) selected") {
+        section("Thread Plan · \(selectedTasks.count) selected") {
+            HStack(spacing: 10) {
+                Text(threadPlanSummary)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(selectedTasks.isEmpty ? Color.primary.opacity(0.42) : board.theme.accentColor)
+                Spacer()
+                Button(selectedTaskIDs.count == board.openTasks.count ? "Clear" : "Select all") {
+                    toggleAllTasks(in: board)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.55))
+            }
+
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(board.openTasks) { task in
-                        Button {
-                            if selectedTaskIDs.contains(task.id) {
-                                selectedTaskIDs.remove(task.id)
-                            } else {
-                                selectedTaskIDs.insert(task.id)
-                            }
-                            suggestBranchName()
-                        } label: {
-                            HStack(alignment: .top, spacing: 12) {
+                        HStack(alignment: .top, spacing: 10) {
+                            Button {
+                                toggleTask(task)
+                            } label: {
                                 Image(systemName: selectedTaskIDs.contains(task.id) ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundStyle(selectedTaskIDs.contains(task.id) ? board.theme.accentColor : Color.primary.opacity(0.3))
                                     .padding(.top, 1)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                toggleTask(task)
+                            } label: {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text(task.title)
                                         .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -106,15 +134,44 @@ struct CodexSendSheet: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     AttachmentDraftStrip(attachments: task.attachments)
                                 }
+                                .contentShape(Rectangle())
                             }
-                            .padding(13)
-                            .background(Color.primary.opacity(selectedTaskIDs.contains(task.id) ? 0.08 : 0.035), in: RoundedRectangle(cornerRadius: 14))
+                            .buttonStyle(.plain)
+
+                            if let threadNumber = threadNumberByTaskID[task.id] {
+                                Button {
+                                    toggleThreadStart(before: task)
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: threadBadgeImage(for: task))
+                                            .font(.system(size: 9, weight: .bold))
+                                        Text("T\(threadNumber)")
+                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    }
+                                    .foregroundStyle(threadColor(threadNumber))
+                                    .padding(.horizontal, 9)
+                                    .frame(height: 28)
+                                    .background(threadColor(threadNumber).opacity(0.13), in: Capsule())
+                                    .overlay(Capsule().stroke(threadColor(threadNumber).opacity(0.22)))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(task.id == selectedTasks.first?.id)
+                                .opacity(task.id == selectedTasks.first?.id ? 0.65 : 1)
+                                .help(threadStartTaskIDs.contains(task.id)
+                                    ? "Merge this task and the following prompts into the previous thread"
+                                    : "Start a new Codex thread with this task")
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .padding(13)
+                        .background(Color.primary.opacity(selectedTaskIDs.contains(task.id) ? 0.08 : 0.035), in: RoundedRectangle(cornerRadius: 14))
                     }
                 }
             }
-            .frame(maxHeight: 250)
+            .frame(maxHeight: 255)
+
+            Text("Click a task’s thread badge to split before it. Threads run in order and share the branch and worktree.")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.46))
         }
     }
 
@@ -172,12 +229,18 @@ struct CodexSendSheet: View {
                         .foregroundStyle(Color.primary.opacity(0.46))
                 }
             }
-        } else if let receipt {
+        } else if !receipts.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
-                Text("Queue complete · \(receipt.completedTaskCount) prompts")
+                Text("Queue complete · \(receipts.count) thread\(receipts.count == 1 ? "" : "s") · \(completedCount) prompts")
                     .foregroundStyle(Color.green.opacity(0.9))
-                Text("Thread \(receipt.threadID)")
-                Text(receipt.worktreePath)
+                ForEach(Array(receipts.enumerated()), id: \.offset) { index, receipt in
+                    Text("T\(index + 1) · …\(CodexDisplayText.threadID(receipt.threadID))")
+                }
+                if let worktreePath = receipts.first?.worktreePath {
+                    Text(worktreePath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             .font(.system(size: 11, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.primary.opacity(0.56))
@@ -195,7 +258,7 @@ struct CodexSendSheet: View {
                 .foregroundStyle(Color.primary.opacity(0.6))
             Spacer()
             Button(action: sendQueue) {
-                Text("Run \(selectedTasks.count) Prompt\(selectedTasks.count == 1 ? "" : "s")")
+                Text("Run \(selectedTasks.count) Prompt\(selectedTasks.count == 1 ? "" : "s") in \(taskGroups.count) Thread\(taskGroups.count == 1 ? "" : "s")")
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
             }
             .buttonStyle(.borderedProminent)
@@ -215,10 +278,20 @@ struct CodexSendSheet: View {
 
     private var queueStatusDetail: String {
         if let threadID = dispatchStatus.threadID {
+            let groupNumber = (activeGroupIndex ?? 0) + 1
             let promptNumber = min(completedCount + 1, max(selectedTasks.count, 1))
-            return "Prompt \(promptNumber)/\(selectedTasks.count) · thread …\(CodexDisplayText.threadID(threadID))"
+            return "Thread \(groupNumber)/\(taskGroups.count) · prompt \(promptNumber)/\(selectedTasks.count) · …\(CodexDisplayText.threadID(threadID))"
         }
-        return "Codex thread has not been created yet"
+        if let activeGroupIndex {
+            return "Preparing thread \(activeGroupIndex + 1)/\(taskGroups.count) on the shared branch"
+        }
+        return "Codex threads have not been created yet"
+    }
+
+    private var threadPlanSummary: String {
+        guard !taskGroups.isEmpty else { return "Select prompts to build a thread plan" }
+        return "\(taskGroups.count) thread\(taskGroups.count == 1 ? "" : "s") · "
+            + taskGroups.map { String($0.count) }.joined(separator: " / ")
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -271,6 +344,49 @@ struct CodexSendSheet: View {
         }
     }
 
+    private func toggleTask(_ task: TaskItem) {
+        if selectedTaskIDs.contains(task.id) {
+            selectedTaskIDs.remove(task.id)
+            threadStartTaskIDs.remove(task.id)
+        } else {
+            selectedTaskIDs.insert(task.id)
+        }
+        pruneThreadStarts()
+        suggestBranchName()
+    }
+
+    private func toggleAllTasks(in board: TaskBoard) {
+        if selectedTaskIDs.count == board.openTasks.count {
+            selectedTaskIDs.removeAll()
+            threadStartTaskIDs.removeAll()
+        } else {
+            selectedTaskIDs = Set(board.openTasks.map(\.id))
+            pruneThreadStarts()
+        }
+        suggestBranchName()
+    }
+
+    private func toggleThreadStart(before task: TaskItem) {
+        guard task.id != selectedTasks.first?.id else { return }
+        if threadStartTaskIDs.contains(task.id) {
+            threadStartTaskIDs.remove(task.id)
+        } else {
+            threadStartTaskIDs.insert(task.id)
+        }
+    }
+
+    private func pruneThreadStarts() {
+        threadStartTaskIDs.formIntersection(selectedTaskIDs)
+        if let firstTaskID = selectedTasks.first?.id {
+            threadStartTaskIDs.remove(firstTaskID)
+        }
+    }
+
+    private func threadColor(_ number: Int) -> Color {
+        let colors: [Color] = [.blue, .orange, .purple, .green, .pink, .teal]
+        return colors[(max(number, 1) - 1) % colors.count]
+    }
+
     private func suggestBranchName() {
         guard let board, branchMode == .new else { return }
         newBranchName = CodexBranchNameBuilder.suggestedBranchName(
@@ -308,38 +424,68 @@ struct CodexSendSheet: View {
 
     private func sendQueue() {
         guard let board else { return }
-        let tasks = selectedTasks
+        let groups = taskGroups
+        let tasks = groups.flatMap { $0 }
         let choice: CodexBranchChoice = branchMode == .new
             ? .new(newBranchName)
             : .existing(existingBranch)
         isSending = true
         completedCount = 0
+        activeGroupIndex = nil
+        completedGroupIndices = []
         errorMessage = nil
-        receipt = nil
+        receipts = []
         dispatchStatus = .init(.waiting, totalCount: tasks.count)
         store.clearTaskStatusOverride(taskIDs: tasks.map(\.id), in: board.id)
-        let runID = runMonitor.start(
-            boardID: board.id,
-            taskID: nil,
-            taskIDs: tasks.map(\.id),
-            title: "\(tasks.count) prompt\(tasks.count == 1 ? "" : "s") · \(board.title)",
-            kind: .queue,
-            totalCount: tasks.count
-        )
+        let runIDs = groups.enumerated().map { groupIndex, group in
+            runMonitor.start(
+                boardID: board.id,
+                taskID: nil,
+                taskIDs: group.map(\.id),
+                title: "Thread \(groupIndex + 1) · \(group.count) prompt\(group.count == 1 ? "" : "s") · \(board.title)",
+                kind: .queue,
+                totalCount: group.count
+            )
+        }
 
         Task {
             do {
-                let result = try await CodexTaskDispatcher.shared.sendQueue(
+                let result = try await CodexTaskDispatcher.shared.sendGroupedQueue(
                     boardTitle: board.title,
-                    tasks: tasks,
+                    taskGroups: groups,
                     workspacePath: board.folderPath,
                     branchChoice: choice,
                     model: model,
                     effort: effort,
-                    status: { status in
+                    status: { update in
                         await MainActor.run {
-                            dispatchStatus = status
-                            runMonitor.apply(status, to: runID)
+                            dispatchStatus = update.groupStatus
+                            activeGroupIndex = update.groupIndex
+                            if let groupIndex = update.groupIndex,
+                               runIDs.indices.contains(groupIndex) {
+                                runMonitor.apply(update.groupStatus, to: runIDs[groupIndex])
+                            } else {
+                                for (index, runID) in runIDs.enumerated()
+                                where !completedGroupIndices.contains(index) {
+                                    runMonitor.apply(
+                                        .init(
+                                            update.groupStatus.phase,
+                                            completedCount: 0,
+                                            totalCount: groups[index].count
+                                        ),
+                                        to: runID
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    groupCompleted: { groupIndex, receipt in
+                        await MainActor.run {
+                            completedGroupIndices.insert(groupIndex)
+                            receipts.append(receipt)
+                            if runIDs.indices.contains(groupIndex) {
+                                runMonitor.complete(runIDs[groupIndex], receipt: receipt)
+                            }
                         }
                     },
                     progress: { completed, _ in
@@ -347,15 +493,20 @@ struct CodexSendSheet: View {
                     }
                 )
                 await MainActor.run {
-                    receipt = result
+                    receipts = result.threads
+                    completedCount = result.completedTaskCount
                     isSending = false
-                    runMonitor.complete(runID, receipt: result)
+                    activeGroupIndex = nil
                 }
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     isSending = false
-                    runMonitor.fail(runID, error: error)
+                    activeGroupIndex = nil
+                    for (index, runID) in runIDs.enumerated()
+                    where !completedGroupIndices.contains(index) {
+                        runMonitor.fail(runID, error: error)
+                    }
                 }
             }
         }
@@ -364,6 +515,30 @@ struct CodexSendSheet: View {
     private enum BranchMode: Hashable {
         case new
         case existing
+    }
+
+    private func threadBadgeImage(for task: TaskItem) -> String {
+        if task.id == selectedTasks.first?.id { return "text.bubble.fill" }
+        return threadStartTaskIDs.contains(task.id) ? "arrow.triangle.branch" : "plus"
+    }
+}
+
+enum CodexThreadPlan {
+    static func groups(
+        orderedTasks: [TaskItem],
+        threadStartTaskIDs: Set<TaskItem.ID>
+    ) -> [[TaskItem]] {
+        guard let firstTask = orderedTasks.first else { return [] }
+
+        var groups: [[TaskItem]] = [[firstTask]]
+        for task in orderedTasks.dropFirst() {
+            if threadStartTaskIDs.contains(task.id) {
+                groups.append([task])
+            } else {
+                groups[groups.count - 1].append(task)
+            }
+        }
+        return groups
     }
 }
 

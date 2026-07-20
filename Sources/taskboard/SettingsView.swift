@@ -196,7 +196,7 @@ private struct SupabaseSyncSettingsSection: View {
     @AppStorage(SupabasePreferences.emailKey) private var email = ""
     @State private var password = ""
     @State private var statusMessage = SupabasePreferences.isConfigured
-        ? "Connected. taskboard syncs every few seconds."
+        ? "Connected. taskboard syncs changes in real time."
         : "Connect the same Supabase account used by the iPhone web app."
     @State private var isConnecting = false
 

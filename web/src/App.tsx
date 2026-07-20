@@ -339,7 +339,6 @@ function App() {
               className={`board-tab ${selected ? "selected" : ""}`}
               key={board.id}
               onClick={() => {
-                beginLocalMutation();
                 setSnapshot((current) => ({ ...current, selectedBoardID: board.id }));
               }}
             >

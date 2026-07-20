@@ -10,9 +10,18 @@ let package = Package(
     products: [
         .executable(name: "taskboard", targets: ["taskboard"]),
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/supabase/supabase-swift.git",
+            exact: "2.46.0"
+        ),
+    ],
     targets: [
         .executableTarget(
-            name: "taskboard"
+            name: "taskboard",
+            dependencies: [
+                .product(name: "Realtime", package: "supabase-swift"),
+            ]
         ),
         .testTarget(
             name: "taskboardTests",

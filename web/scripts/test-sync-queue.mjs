@@ -32,6 +32,7 @@ const todo = snapshotWithStatus("todo");
 const pendingWrites = [];
 const remoteSnapshots = [];
 let realtimeHandler;
+let selectedColumns;
 
 const client = {
   from() {
@@ -47,7 +48,8 @@ const client = {
       },
       upsert(row) {
         return {
-          select() {
+          select(columns) {
+            selectedColumns = columns;
             return {
               single() {
                 return new Promise((resolve) => pendingWrites.push({ row, resolve }));
@@ -69,7 +71,7 @@ const client = {
 
 const vite = await createServer({ server: { middlewareMode: true }, appType: "custom" });
 try {
-  const { SnapshotSync } = await vite.ssrLoadModule("/src/supabase.ts");
+  const { SnapshotSync, snapshotForSync } = await vite.ssrLoadModule("/src/supabase.ts");
   const { mergeRemoteSnapshot } = await vite.ssrLoadModule("/src/storage.ts");
 
   const otherBoard = { ...base.boards[0], id: "other", title: "Other", tasks: [] };
@@ -84,6 +86,7 @@ try {
     "other",
     "remote content must not switch the browser back to another tab",
   );
+  assert.equal(snapshotForSync(localOnOtherTab).selectedBoardID, null);
 
   const sync = new SnapshotSync(
     client,
@@ -97,6 +100,8 @@ try {
   sync.scheduleSave(running);
   await delay(380);
   assert.equal(pendingWrites.length, 1, "the first write should be in flight");
+  assert.equal(pendingWrites[0].row.payload.selectedBoardID, null, "device selection must not be uploaded");
+  assert.equal(selectedColumns, "updated_at", "writes should return only sync metadata");
 
   sync.beginLocalMutation();
   sync.scheduleSave(todo);
@@ -104,7 +109,7 @@ try {
   assert.equal(pendingWrites.length, 1, "the newer write must wait for the first write");
 
   pendingWrites[0].resolve({
-    data: { payload: running, updated_at: "2026-01-01T00:00:01.000Z" },
+    data: { updated_at: "2026-01-01T00:00:01.000Z" },
     error: null,
   });
   await delay(0);
@@ -112,7 +117,7 @@ try {
   assert.equal(pendingWrites[1].row.payload.boards[0].tasks[0].statusOverride, "todo");
 
   pendingWrites[1].resolve({
-    data: { payload: todo, updated_at: "2026-01-01T00:00:02.000Z" },
+    data: { updated_at: "2026-01-01T00:00:02.000Z" },
     error: null,
   });
   await delay(0);

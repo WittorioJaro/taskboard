@@ -1,4 +1,6 @@
 import Foundation
+import LocalAuthentication
+import Realtime
 import Security
 
 enum SupabasePreferences {
@@ -6,11 +8,14 @@ enum SupabasePreferences {
     static let anonKeyKey = "supabaseAnonKey"
     static let emailKey = "supabaseEmail"
 
-    static var isConfigured: Bool {
+    static var hasProjectConfiguration: Bool {
         let defaults = UserDefaults.standard
         return !(defaults.string(forKey: urlKey) ?? "").isEmpty
             && !(defaults.string(forKey: anonKeyKey) ?? "").isEmpty
-            && SupabaseSessionStore.load() != nil
+    }
+
+    static var isConfigured: Bool {
+        hasProjectConfiguration && SupabaseSessionStore.load() != nil
     }
 }
 
@@ -21,17 +26,34 @@ private struct SupabaseAuthSession: Codable {
 }
 
 private enum SupabaseSessionStore {
-    private static let service = "com.wiktorjarochiewicz.taskboard.supabase"
+    private static let service = "com.wiktorjarochiewicz.taskboard.supabase.v2"
     private static let account = "session"
 
     static func load() -> SupabaseAuthSession? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+        if let migrationURL,
+           let data = try? Data(contentsOf: migrationURL),
+           let session = try? JSONDecoder().decode(SupabaseAuthSession.self, from: data) {
+            do {
+                try save(session)
+                try? FileManager.default.removeItem(at: migrationURL)
+            } catch {
+                NSLog("taskboard session migration error: \(error.localizedDescription)")
+            }
+            return session
+        }
+
+        if let session = load(service: service) {
+            return session
+        }
+        return nil
+    }
+
+    private static func load(service: String) -> SupabaseAuthSession? {
+        var query = nonInteractiveQuery(service: service)
+        query.merge([
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+        ]) { _, new in new }
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data else { return nil }
@@ -40,13 +62,10 @@ private enum SupabaseSessionStore {
 
     static func save(_ session: SupabaseAuthSession) throws {
         let data = try JSONEncoder().encode(session)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+        let query = nonInteractiveQuery(service: service)
         SecItemDelete(query as CFDictionary)
         var item = query
+        item.removeValue(forKey: kSecUseAuthenticationContext as String)
         item[kSecValueData as String] = data
         let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess else {
@@ -55,12 +74,28 @@ private enum SupabaseSessionStore {
     }
 
     static func clear() {
-        let query: [String: Any] = [
+        let query = nonInteractiveQuery(service: service)
+        SecItemDelete(query as CFDictionary)
+        if let migrationURL {
+            try? FileManager.default.removeItem(at: migrationURL)
+        }
+    }
+
+    private static var migrationURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("taskboard", isDirectory: true)
+            .appendingPathComponent("supabase-session-migration.json", isDirectory: false)
+    }
+
+    private static func nonInteractiveQuery(service: String) -> [String: Any] {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
+            kSecUseAuthenticationContext as String: context,
         ]
-        SecItemDelete(query as CFDictionary)
     }
 }
 
@@ -79,7 +114,22 @@ final class SupabaseSyncService {
         }
     }
 
-    private struct SnapshotRow: Decodable { let payload: TaskBoardSnapshot }
+    private struct SnapshotRow: Decodable {
+        let payload: TaskBoardSnapshot
+        let updatedAt: String
+
+        private enum CodingKeys: String, CodingKey {
+            case payload
+            case updatedAt = "updated_at"
+        }
+    }
+    private struct SnapshotVersionRow: Decodable {
+        let updatedAt: String
+
+        private enum CodingKeys: String, CodingKey {
+            case updatedAt = "updated_at"
+        }
+    }
     private struct SnapshotUpsert: Encodable {
         let ownerID: UUID
         let id = "primary"
@@ -96,6 +146,10 @@ final class SupabaseSyncService {
     private let baseURL: URL
     private let anonKey: String
     private var session: SupabaseAuthSession
+    private let realtimeClient: RealtimeClientV2
+    private var realtimeChannel: RealtimeChannelV2?
+    private var realtimeSubscriptions: Set<RealtimeSubscription> = []
+    private var lastKnownUpdatedAt: String?
     private var debounceTask: Task<Void, Never>?
     private var queuedSnapshot: TaskBoardSnapshot?
     private var queuedCompletion: (@MainActor (Result<Void, Error>) -> Void)?
@@ -119,6 +173,13 @@ final class SupabaseSyncService {
         baseURL = url
         anonKey = key
         self.session = session
+        realtimeClient = RealtimeClientV2(
+            url: url.appending(path: "realtime/v1"),
+            options: RealtimeClientOptions(headers: [
+                "apikey": key,
+                "Authorization": "Bearer \(session.accessToken)",
+            ])
+        )
     }
 
     static func signIn(projectURL: String, anonKey: String, email: String, password: String) async throws {
@@ -155,23 +216,103 @@ final class SupabaseSyncService {
         let url = baseURL.appending(path: "rest/v1/taskboard_snapshots").appending(queryItems: [
             URLQueryItem(name: "owner_id", value: "eq.\(session.userID.uuidString.lowercased())"),
             URLQueryItem(name: "id", value: "eq.primary"),
-            URLQueryItem(name: "select", value: "payload"),
+            URLQueryItem(name: "select", value: "payload,updated_at"),
         ])
         let data = try await authenticatedRequest(url: url)
-        return try decoder.decode([SnapshotRow].self, from: data).first?.payload
+        guard let row = try decoder.decode([SnapshotRow].self, from: data).first else {
+            lastKnownUpdatedAt = nil
+            return nil
+        }
+        lastKnownUpdatedAt = row.updatedAt
+        return row.payload
+    }
+
+    func fetchSnapshotIfChanged() async throws -> TaskBoardSnapshot? {
+        let url = baseURL.appending(path: "rest/v1/taskboard_snapshots").appending(queryItems: [
+            URLQueryItem(name: "owner_id", value: "eq.\(session.userID.uuidString.lowercased())"),
+            URLQueryItem(name: "id", value: "eq.primary"),
+            URLQueryItem(name: "select", value: "updated_at"),
+        ])
+        let data = try await authenticatedRequest(url: url)
+        guard let version = try decoder.decode([SnapshotVersionRow].self, from: data).first?.updatedAt else {
+            return nil
+        }
+        guard version != lastKnownUpdatedAt else { return nil }
+        return try await fetchSnapshot()
     }
 
     func save(snapshot: TaskBoardSnapshot) async throws {
         let url = baseURL.appending(path: "rest/v1/taskboard_snapshots").appending(queryItems: [
             URLQueryItem(name: "on_conflict", value: "owner_id,id"),
+            URLQueryItem(name: "select", value: "updated_at"),
         ])
-        let body = try encoder.encode(SnapshotUpsert(ownerID: session.userID, payload: snapshot))
-        _ = try await authenticatedRequest(
+        let body = try encoder.encode(SnapshotUpsert(
+            ownerID: session.userID,
+            payload: snapshot.cloudRepresentation
+        ))
+        let data = try await authenticatedRequest(
             url: url,
             method: "POST",
             body: body,
-            headers: ["Prefer": "resolution=merge-duplicates,return=minimal"]
+            headers: ["Prefer": "resolution=merge-duplicates,return=representation"]
         )
+        lastKnownUpdatedAt = try decoder.decode([SnapshotVersionRow].self, from: data).first?.updatedAt
+    }
+
+    func startRealtime(
+        onSnapshot: @escaping @MainActor (TaskBoardSnapshot) -> Void
+    ) async throws {
+        guard realtimeChannel == nil else { return }
+
+        let ownerFilter = "owner_id=eq.\(session.userID.uuidString.lowercased())"
+        let channel = realtimeClient.channel("taskboard:\(session.userID.uuidString.lowercased())")
+        realtimeChannel = channel
+
+        channel.onPostgresChange(
+            InsertAction.self,
+            schema: "public",
+            table: "taskboard_snapshots",
+            filter: ownerFilter
+        ) { [weak self] action in
+            Task { @MainActor [weak self] in
+                self?.handleRealtimeRecord(action.record, onSnapshot: onSnapshot)
+            }
+        }
+        .store(in: &realtimeSubscriptions)
+
+        channel.onPostgresChange(
+            UpdateAction.self,
+            schema: "public",
+            table: "taskboard_snapshots",
+            filter: ownerFilter
+        ) { [weak self] action in
+            Task { @MainActor [weak self] in
+                self?.handleRealtimeRecord(action.record, onSnapshot: onSnapshot)
+            }
+        }
+        .store(in: &realtimeSubscriptions)
+
+        do {
+            try await channel.subscribeWithError()
+        } catch {
+            realtimeSubscriptions.removeAll()
+            realtimeChannel = nil
+            await realtimeClient.removeChannel(channel)
+            throw error
+        }
+    }
+
+    private func handleRealtimeRecord(
+        _ record: [String: AnyJSON],
+        onSnapshot: @MainActor (TaskBoardSnapshot) -> Void
+    ) {
+        do {
+            let row = try record.decode(as: SnapshotRow.self, decoder: decoder)
+            lastKnownUpdatedAt = row.updatedAt
+            onSnapshot(row.payload)
+        } catch {
+            NSLog("taskboard realtime decode error: \(error.localizedDescription)")
+        }
     }
 
     func scheduleSave(
@@ -263,6 +404,7 @@ final class SupabaseSyncService {
         let auth = try decoder.decode(AuthResponse.self, from: data)
         session = .init(accessToken: auth.accessToken, refreshToken: auth.refreshToken, userID: auth.user.id)
         try SupabaseSessionStore.save(session)
+        await realtimeClient.setAuth(session.accessToken)
     }
 
     private static func validate(response: URLResponse, data: Data) throws {

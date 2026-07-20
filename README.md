@@ -124,7 +124,7 @@ Supabase projects may require email confirmation before the first sign-in. Both 
 
 Assign a local Git repository folder to a board using the folder button in its header.
 
-- **Queue runs** send tasks in order to one persistent Codex thread and can use a dedicated worktree on a new or existing branch.
+- **Queue runs** can split selected tasks across multiple focused Codex threads. The threads run in order and share one worktree on a new or existing branch.
 - **Direct sends** send one task immediately, without creating a worktree or branch. The configured repository must currently be on `main`.
 
 Codex integration expects the Codex desktop app or its bundled CLI to be installed locally. Task management itself does not depend on Codex.

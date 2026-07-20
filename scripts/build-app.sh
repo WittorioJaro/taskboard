@@ -88,13 +88,14 @@ if [[ -n "${TASKBOARD_SIGNING_IDENTITY:-}" ]]; then
         --entitlements "$ROOT_DIR/macOS/taskboard.entitlements" \
         "$APP_DIR"
 else
-    # SwiftPM ad-hoc signs the executable with the identifier "taskboard".
-    # Re-sign the bundle with its real identifier so UserDefaults keeps using
-    # the same preferences domain after the app is copied to /Applications.
+    # Keep a stable designated requirement across ad-hoc development builds.
+    # Without it, macOS uses the changing binary hash as the requirement and
+    # blocks each replacement build from reading its existing keychain session.
     codesign \
         --force \
         --sign - \
         --identifier "$BUNDLE_IDENTIFIER" \
+        --requirements "=designated => identifier \"$BUNDLE_IDENTIFIER\"" \
         "$APP_DIR"
 fi
 

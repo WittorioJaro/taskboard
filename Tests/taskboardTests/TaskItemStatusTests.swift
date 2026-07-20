@@ -27,4 +27,16 @@ final class TaskItemStatusTests: XCTestCase {
 
         XCTAssertEqual(restored.statusOverride, .running)
     }
+
+    func testCloudSnapshotOmitsDeviceLocalSelection() {
+        let selectedBoardID = UUID()
+        let snapshot = TaskBoardSnapshot(
+            boards: [TaskBoard(id: selectedBoardID, title: "Inbox")],
+            selectedBoardID: selectedBoardID
+        )
+
+        XCTAssertEqual(snapshot.selectedBoardID, selectedBoardID)
+        XCTAssertNil(snapshot.cloudRepresentation.selectedBoardID)
+        XCTAssertEqual(snapshot.cloudRepresentation.boards, snapshot.boards)
+    }
 }

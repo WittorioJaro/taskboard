@@ -139,6 +139,31 @@ final class CodexIntegrationTests: XCTestCase {
         )
     }
 
+    func testThreadPlanSplitsEightOrderedTasksIntoThreeTwoThree() {
+        let tasks = (1...8).map { TaskItem(title: "Task \($0)") }
+        let groups = CodexThreadPlan.groups(
+            orderedTasks: tasks,
+            threadStartTaskIDs: [tasks[3].id, tasks[5].id]
+        )
+
+        XCTAssertEqual(groups.map(\.count), [3, 2, 3])
+        XCTAssertEqual(groups.map { $0.map(\.title) }, [
+            ["Task 1", "Task 2", "Task 3"],
+            ["Task 4", "Task 5"],
+            ["Task 6", "Task 7", "Task 8"],
+        ])
+    }
+
+    func testThreadPlanIgnoresAFirstTaskSplitMarker() {
+        let tasks = (1...3).map { TaskItem(title: "Task \($0)") }
+        let groups = CodexThreadPlan.groups(
+            orderedTasks: tasks,
+            threadStartTaskIDs: [tasks[0].id, tasks[2].id]
+        )
+
+        XCTAssertEqual(groups.map(\.count), [2, 1])
+    }
+
     func testLiveCodexQueueCompletesWhenEnabled() async throws {
         guard ProcessInfo.processInfo.environment["TASKBOARD_RUN_CODEX_INTEGRATION_TESTS"] == "1" else {
             throw XCTSkip("Set TASKBOARD_RUN_CODEX_INTEGRATION_TESTS=1 to run the live Codex test.")
@@ -166,6 +191,49 @@ final class CodexIntegrationTests: XCTestCase {
         XCTAssertEqual(receipt.completedTaskCount, 1)
         let progressValues = await progress.values
         XCTAssertEqual(progressValues, [.init(completed: 0, total: 1), .init(completed: 1, total: 1)])
+        await CodexTaskDispatcher.shared.shutdownForTesting()
+    }
+
+    func testLiveGroupedQueueCreatesSeparateThreadsOnOneBranchWhenEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["TASKBOARD_RUN_CODEX_GROUP_TESTS"] == "1" else {
+            throw XCTSkip("Set TASKBOARD_RUN_CODEX_GROUP_TESTS=1 to run the grouped queue test.")
+        }
+
+        let repo = try makeTemporaryMainRepository()
+        let markers = (1...3).map { "TASKBOARD_GROUP_\($0)_\(UUID().uuidString)" }
+        let groups = markers.map { marker in
+            [TaskItem(title: "Reply with exactly \(marker). Do not edit files.")]
+        }
+        let progress = ProgressRecorder()
+        let receipt = try await CodexTaskDispatcher.shared.sendGroupedQueue(
+            boardTitle: "Taskboard Grouped Queue Test",
+            taskGroups: groups,
+            workspacePath: repo.path,
+            branchChoice: .existing("main"),
+            model: .recommended,
+            effort: .low,
+            progress: { completed, total in
+                await progress.record(completed: completed, total: total)
+            }
+        )
+
+        XCTAssertEqual(receipt.threads.count, 3)
+        XCTAssertEqual(Set(receipt.threads.map(\.threadID)).count, 3)
+        XCTAssertEqual(Set(receipt.threads.compactMap(\.branchName)), ["main"])
+        XCTAssertEqual(Set(receipt.threads.map(\.worktreePath)).count, 1)
+        XCTAssertEqual(receipt.completedTaskCount, 3)
+
+        for (index, thread) in receipt.threads.enumerated() {
+            let session = try persistedSession(threadID: thread.threadID)
+            XCTAssertTrue(session.contains(markers[index]))
+            for otherMarker in markers where otherMarker != markers[index] {
+                XCTAssertFalse(session.contains(otherMarker))
+            }
+        }
+
+        let progressValues = await progress.values
+        XCTAssertEqual(progressValues.first, .init(completed: 0, total: 3))
+        XCTAssertEqual(progressValues.last, .init(completed: 3, total: 3))
         await CodexTaskDispatcher.shared.shutdownForTesting()
     }
 

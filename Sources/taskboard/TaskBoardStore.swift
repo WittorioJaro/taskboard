@@ -18,17 +18,17 @@ final class TaskBoardStore {
     private let persistenceURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private let cloudSync: CloudKitSyncService?
+    private var cloudSync: CloudKitSyncService?
 #if os(macOS)
-    private let supabaseSync: SupabaseSyncService?
-    private var supabasePollingTask: Task<Void, Never>?
+    private var supabaseSync: SupabaseSyncService?
+    private var supabaseFallbackTask: Task<Void, Never>?
 #endif
 
     init(fileManager: FileManager = .default, enablesCloudSync: Bool = true) {
         persistenceURL = Self.makePersistenceURL(fileManager: fileManager)
 #if os(macOS)
-        supabaseSync = enablesCloudSync && SupabasePreferences.isConfigured ? SupabaseSyncService() : nil
-        cloudSync = enablesCloudSync && supabaseSync == nil && CloudKitSyncService.isEntitled ? CloudKitSyncService() : nil
+        supabaseSync = nil
+        cloudSync = nil
 #else
         cloudSync = enablesCloudSync && CloudKitSyncService.isEntitled ? CloudKitSyncService() : nil
 #endif
@@ -46,10 +46,14 @@ final class TaskBoardStore {
         }
 
         #if os(macOS)
-        if supabaseSync != nil {
-            Task { [weak self] in await self?.startSupabaseSync() }
-        } else if cloudSync != nil {
-            Task { [weak self] in await self?.startCloudSync() }
+        if enablesCloudSync {
+            Task { [weak self] in
+                // Keychain access can block while macOS validates a newly
+                // installed signature. Let AppKit finish launching first so
+                // any access prompt can be displayed instead of hanging init.
+                try? await Task.sleep(for: .milliseconds(500))
+                await self?.startPreferredCloudSync()
+            }
         }
         #else
         if cloudSync != nil {
@@ -403,6 +407,17 @@ final class TaskBoardStore {
     }
 
 #if os(macOS)
+    private func startPreferredCloudSync() async {
+        if let supabaseSync = SupabaseSyncService() {
+            self.supabaseSync = supabaseSync
+            await startSupabaseSync()
+        } else if CloudKitSyncService.isEntitled {
+            let cloudSync = CloudKitSyncService()
+            self.cloudSync = cloudSync
+            await startCloudSync()
+        }
+    }
+
     private func startSupabaseSync() async {
         guard let supabaseSync else { return }
         syncStatus = .syncing
@@ -416,20 +431,29 @@ final class TaskBoardStore {
             } else {
                 try await supabaseSync.save(snapshot: currentSnapshot)
             }
+            try await supabaseSync.startRealtime { [weak self] remoteSnapshot in
+                guard let self,
+                      self.supabaseSync?.hasPendingSave != true,
+                      remoteSnapshot.cloudRepresentation != self.currentSnapshot.cloudRepresentation else {
+                    return
+                }
+                self.apply(remoteSnapshot)
+                self.syncStatus = .synced
+            }
             syncStatus = .synced
         } catch {
             syncStatus = .error(error.localizedDescription)
         }
-        // Poll even if the initial sync failed, so a launch-time network
-        // hiccup or token refresh doesn't kill sync for the whole session.
-        beginSupabasePolling()
+        // Realtime is the primary path. This tiny metadata request is a safety
+        // net for missed websocket events and refreshes expired auth sessions.
+        beginSupabaseFallback()
     }
 
     private func refreshFromSupabase(_ service: SupabaseSyncService) async {
         guard !service.hasPendingSave else { return }
         do {
-            if let remoteSnapshot = try await service.fetchSnapshot(),
-               remoteSnapshot != currentSnapshot,
+            if let remoteSnapshot = try await service.fetchSnapshotIfChanged(),
+               remoteSnapshot.cloudRepresentation != currentSnapshot.cloudRepresentation,
                !service.hasPendingSave {
                 apply(remoteSnapshot)
             }
@@ -439,11 +463,11 @@ final class TaskBoardStore {
         }
     }
 
-    private func beginSupabasePolling() {
-        supabasePollingTask?.cancel()
-        supabasePollingTask = Task { [weak self] in
+    private func beginSupabaseFallback() {
+        supabaseFallbackTask?.cancel()
+        supabaseFallbackTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(4))
+                try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled, let self, let service = self.supabaseSync else { return }
                 await self.refreshFromSupabase(service)
             }
@@ -529,5 +553,9 @@ struct TaskBoardSnapshot: Codable, Sendable, Equatable {
     var hasUserContent: Bool {
         boards.count > 1
             || boards.contains { !$0.tasks.isEmpty || $0.title != "Inbox" || !$0.folderPath.isEmpty }
+    }
+
+    var cloudRepresentation: Self {
+        Self(boards: boards, selectedBoardID: nil)
     }
 }
