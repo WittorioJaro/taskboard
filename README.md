@@ -76,7 +76,7 @@ The PWA is the supported iPhone client. It runs in Safari, can be added to the H
 4. Open the database **Rules** tab, paste [`web/firebase/database.rules.json`](./web/firebase/database.rules.json), and publish it.
 5. In **Project settings → Your apps**, add a Web app and copy its Firebase configuration.
 
-The rules allow an authenticated user to access only `taskboardSnapshots/{their uid}`. Firebase Web API keys are public client configuration; never provide an Admin SDK service-account key.
+The rules allow an authenticated user to access only `taskboardSnapshots/{their uid}`. Firebase Web configuration is visible to browser clients, but project-specific values must not be committed to this repository. Never provide an Admin SDK service-account key.
 
 ### 2. Run the PWA locally
 
@@ -98,7 +98,7 @@ VITE_FIREBASE_PROJECT_ID="your-project"
 VITE_FIREBASE_APP_ID="..."
 ```
 
-These values will be present in the browser bundle. Security comes from Firebase Authentication and the included Realtime Database rules.
+These values will be present in the browser bundle. Keep `.env.local` untracked and configure the same variables in the deployment provider rather than committing them. Security comes from Firebase Authentication and the included Realtime Database rules.
 
 ### 3. Deploy the PWA
 
@@ -110,6 +110,8 @@ npx vercel --prod
 ```
 
 Alternatively, run `npm run build` and deploy the generated `web/dist` directory to any HTTPS static host with SPA fallback routing.
+
+Before deploying with Vercel, add the five `VITE_FIREBASE_*` variables from [`web/.env.example`](./web/.env.example) to the project’s Production environment. Do not commit their values.
 
 On iPhone, open the deployed URL in Safari, tap **Share**, choose **Add to Home Screen**, and launch taskboard from the new icon.
 

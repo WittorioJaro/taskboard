@@ -12,7 +12,6 @@ DerivedData/
 /web/dist
 /web/.env*
 !/web/.env.example
-!/web/.env.production
 /web/*.tsbuildinfo
 /web/vite.config.js
 /web/vite.config.d.ts
