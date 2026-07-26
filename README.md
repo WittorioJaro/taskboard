@@ -2,7 +2,7 @@
 
 A small, local-first task manager for macOS, with an optional installable iPhone web app.
 
-taskboard is designed for fast capture and a quiet workflow: create boards, move tasks between Todo, Running, and Done, and send repository-backed work to Codex without leaving the app. The Mac app works entirely offline. Supabase sync is optional and only needed if you want the iPhone PWA and Mac app to share data.
+taskboard is designed for fast capture and a quiet workflow: create boards, move tasks between Todo, Running, and Done, and send repository-backed work to Codex without leaving the app. The Mac app works entirely offline. Firebase sync is optional and only needed if you want the iPhone PWA and Mac app to share data.
 
 ## Features
 
@@ -14,7 +14,7 @@ taskboard is designed for fast capture and a quiet workflow: create boards, move
 - Per-board repository folders
 - Codex queues with branch, model, and reasoning controls
 - Direct prompts to Codex from a board's `main` checkout
-- Optional Supabase sync with an installable iPhone PWA
+- Optional Firebase Realtime Database sync with an installable iPhone PWA
 - Offline storage on both Mac and iPhone
 
 ## Choose your setup
@@ -22,8 +22,8 @@ taskboard is designed for fast capture and a quiet workflow: create boards, move
 | What you want | What you need |
 | --- | --- |
 | Mac app only | macOS 15 and Swift 6.2/Xcode 16 or newer |
-| Mac app + iPhone sync | The Mac requirements, Node.js 22, and a free Supabase project |
-| PWA development only | Node.js 22 and a free Supabase project |
+| Mac app + iPhone sync | The Mac requirements, Node.js 22, and a free Firebase project |
+| PWA development only | Node.js 22 and a free Firebase project |
 
 The Mac app has no third-party Swift package dependencies. An Apple Developer account is not required for local builds or for installing the PWA.
 
@@ -66,16 +66,17 @@ The script signs the build but does not notarize it.
 
 ## Optional: iPhone PWA and sync
 
-The PWA is the supported iPhone client. It runs in Safari, can be added to the Home Screen, and syncs through your own Supabase project.
+The PWA is the supported iPhone client. It runs in Safari, can be added to the Home Screen, and syncs through your own Firebase project.
 
-### 1. Create the Supabase backend
+### 1. Create the Firebase backend
 
-1. Create a project at [supabase.com](https://supabase.com/).
-2. Open the project's **SQL Editor**.
-3. Copy and run [`web/supabase/schema.sql`](./web/supabase/schema.sql).
-4. In **Project Settings → API**, copy the project URL and the public anon key.
+1. Create a Firebase project on the free Spark plan. Do not attach a billing account.
+2. In **Build → Authentication → Sign-in method**, enable **Email/Password**.
+3. In **Build → Realtime Database**, create a database in locked mode.
+4. Open the database **Rules** tab, paste [`web/firebase/database.rules.json`](./web/firebase/database.rules.json), and publish it.
+5. In **Project settings → Your apps**, add a Web app and copy its Firebase configuration.
 
-The schema creates one JSON snapshot per authenticated user, enables row-level security, and adds the table to Supabase Realtime. Use only the public anon key in the app—never use a service-role key.
+The rules allow an authenticated user to access only `taskboardSnapshots/{their uid}`. Firebase Web API keys are public client configuration; never provide an Admin SDK service-account key.
 
 ### 2. Run the PWA locally
 
@@ -87,15 +88,17 @@ npm run dev
 
 Vite prints a local development URL. For on-device PWA testing, use an HTTPS deployment or HTTPS development tunnel; service workers and installation require a secure context.
 
-Supabase credentials can be entered in the PWA's connection screen. For development or deployment, they can instead be supplied at build time:
+Firebase configuration can be entered in the PWA's connection screen. For development or deployment, copy `web/.env.example` to `web/.env.local` and fill in:
 
 ```bash
-VITE_SUPABASE_URL="https://your-project.supabase.co" \
-VITE_SUPABASE_ANON_KEY="your-public-anon-key" \
-  npm run dev
+VITE_FIREBASE_API_KEY="..."
+VITE_FIREBASE_AUTH_DOMAIN="your-project.firebaseapp.com"
+VITE_FIREBASE_DATABASE_URL="https://your-project-default-rtdb.europe-west1.firebasedatabase.app"
+VITE_FIREBASE_PROJECT_ID="your-project"
+VITE_FIREBASE_APP_ID="..."
 ```
 
-These values are public client configuration and will be present in the browser bundle. Security comes from authentication and the row-level-security policies in the included schema.
+These values will be present in the browser bundle. Security comes from Firebase Authentication and the included Realtime Database rules.
 
 ### 3. Deploy the PWA
 
@@ -112,13 +115,15 @@ On iPhone, open the deployed URL in Safari, tap **Share**, choose **Add to Home 
 
 ### 4. Connect both clients
 
-1. In the PWA, open the **Offline** connection panel.
-2. Enter the Supabase URL and anon key, then create an account or sign in.
-3. In the Mac app, open **Settings → Sync**.
-4. Enter the same URL, anon key, email, and password.
-5. Select **Connect Supabase**.
+1. Export a JSON backup from the PWA connection panel before changing providers.
+2. In the Mac app, open **Settings → Sync**.
+3. Enter the Realtime Database URL, Web API key, email, and password.
+4. Select **Create Account**, then restart taskboard so its local snapshot seeds Firebase.
+5. In the PWA, open the **Offline** connection panel, enter the Firebase web configuration, and sign in with the same account.
 
-Supabase projects may require email confirmation before the first sign-in. Both clients keep a local copy and remain usable while offline. When a remote account is empty, the first Mac connection seeds it with the Mac's current snapshot.
+Both clients keep a local copy and remain usable while offline. When the Firebase account is empty, the first Mac connection seeds it with the Mac's current snapshot. Verify edits in both directions before disconnecting the legacy Supabase sync.
+
+For the full migration and rollback sequence, see [`docs/firebase-migration.md`](./docs/firebase-migration.md).
 
 ## Codex integration
 
@@ -137,7 +142,7 @@ Without sync, task data never needs to leave the Mac. The native app stores its 
 ~/Library/Application Support/taskboard/boards.json
 ```
 
-The PWA caches data in browser storage. When Supabase sync is enabled, each authenticated user can access only their own snapshot through the schema's row-level-security policies. The Mac stores its refresh token in Keychain; project configuration remains local to each client.
+The PWA caches data in browser storage. When Firebase sync is enabled, each authenticated user can access only their own snapshot through the Realtime Database rules. The Mac stores its refresh token in Keychain; project configuration remains local to each client.
 
 Before experimenting with sync or schema changes, exporting a PWA JSON backup is recommended.
 
@@ -178,11 +183,12 @@ Sources/taskboard/
   TaskBoardStore.swift        State, task operations, and persistence
   Models.swift                Board, task, attachment, and theme models
   CodexIntegration.swift      Codex threads, queues, and worktrees
-  SupabaseSyncService.swift   Mac authentication and snapshot sync
+  FirebaseSyncService.swift   Preferred Mac authentication and snapshot sync
+  SupabaseSyncService.swift   Legacy rollback sync
 web/
   src/                        React PWA and realtime sync client
   public/                     Manifest, icons, and service worker
-  supabase/schema.sql         Database schema and security policies
+  firebase/database.rules.json Database security rules
 scripts/
   build-app.sh                Release app bundle and signing script
 iOS/                          Experimental legacy native iPhone source
@@ -199,14 +205,14 @@ The locally built bundle is ad-hoc signed rather than notarized. If macOS blocks
 
 ### The PWA stays offline
 
-- Confirm that the URL starts with `https://` and belongs to the same Supabase project as the anon key.
-- Confirm that [`web/supabase/schema.sql`](./web/supabase/schema.sql) completed successfully.
-- Verify the account's email if Supabase email confirmation is enabled.
-- Do not substitute the service-role key for the anon key.
+- Confirm that all five Web app configuration fields belong to the same Firebase project.
+- Confirm that Email/Password authentication is enabled.
+- Confirm that [`web/firebase/database.rules.json`](./web/firebase/database.rules.json) is published.
+- Do not use an Admin SDK service-account key.
 
 ### Realtime changes do not arrive
 
-In Supabase, check that `public.taskboard_snapshots` is included in the `supabase_realtime` publication. The provided schema does this automatically.
+Confirm that the Realtime Database URL is exact, including its region, and that the database rules are published.
 
 ## Contributing
 

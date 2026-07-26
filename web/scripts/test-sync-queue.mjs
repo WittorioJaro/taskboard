@@ -32,46 +32,21 @@ const todo = snapshotWithStatus("todo");
 const pendingWrites = [];
 const remoteSnapshots = [];
 let realtimeHandler;
-let selectedColumns;
 
-const client = {
-  from() {
-    return {
-      select() {
-        const query = {
-          eq() { return query; },
-          async maybeSingle() {
-            return { data: { payload: base, updated_at: "2026-01-01T00:00:00.000Z" }, error: null };
-          },
-        };
-        return query;
-      },
-      upsert(row) {
-        return {
-          select(columns) {
-            selectedColumns = columns;
-            return {
-              single() {
-                return new Promise((resolve) => pendingWrites.push({ row, resolve }));
-              },
-            };
-          },
-        };
-      },
-    };
+const backend = {
+  listen(onData) {
+    realtimeHandler = onData;
+    queueMicrotask(() => onData({ payload: base, updatedAt: 1 }));
+    return () => {};
   },
-  channel() {
-    return {
-      on(_event, _filter, handler) { realtimeHandler = handler; return this; },
-      subscribe(handler) { handler("SUBSCRIBED"); return this; },
-    };
+  write(envelope) {
+    return new Promise((resolve) => pendingWrites.push({ envelope, resolve }));
   },
-  async removeChannel() {},
 };
 
 const vite = await createServer({ server: { middlewareMode: true }, appType: "custom" });
 try {
-  const { SnapshotSync, snapshotForSync } = await vite.ssrLoadModule("/src/supabase.ts");
+  const { SnapshotSync, snapshotForSync } = await vite.ssrLoadModule("/src/firebase.ts");
   const { mergeRemoteSnapshot } = await vite.ssrLoadModule("/src/storage.ts");
 
   const otherBoard = { ...base.boards[0], id: "other", title: "Other", tasks: [] };
@@ -87,12 +62,25 @@ try {
     "remote content must not switch the browser back to another tab",
   );
   assert.equal(snapshotForSync(localOnOtherTab).selectedBoardID, null);
+  const firebaseShape = {
+    ...base,
+    boards: base.boards.map((board) => ({
+      ...board,
+      tasks: board.tasks.map(({ attachments: _attachments, ...task }) => task),
+    })),
+  };
+  assert.deepEqual(
+    mergeRemoteSnapshot(base, firebaseShape).boards[0].tasks[0].attachments,
+    [],
+    "Firebase-omitted empty arrays must be restored",
+  );
 
   const sync = new SnapshotSync(
-    client,
+    {},
     "owner",
     (snapshot) => remoteSnapshots.push(snapshot),
     () => {},
+    backend,
   );
   await sync.start(base);
 
@@ -100,32 +88,27 @@ try {
   sync.scheduleSave(running);
   await delay(380);
   assert.equal(pendingWrites.length, 1, "the first write should be in flight");
-  assert.equal(pendingWrites[0].row.payload.selectedBoardID, null, "device selection must not be uploaded");
-  assert.equal(selectedColumns, "updated_at", "writes should return only sync metadata");
+  assert.equal(pendingWrites[0].envelope.payload.selectedBoardID, null, "device selection must not be uploaded");
 
   sync.beginLocalMutation();
   sync.scheduleSave(todo);
   await delay(380);
   assert.equal(pendingWrites.length, 1, "the newer write must wait for the first write");
 
-  pendingWrites[0].resolve({
-    data: { updated_at: "2026-01-01T00:00:01.000Z" },
-    error: null,
-  });
+  const firstVersion = pendingWrites[0].envelope.updatedAt;
+  pendingWrites[0].resolve();
   await delay(0);
   assert.equal(pendingWrites.length, 2, "the queued TODO write should start after RUNNING finishes");
-  assert.equal(pendingWrites[1].row.payload.boards[0].tasks[0].statusOverride, "todo");
+  assert.equal(pendingWrites[1].envelope.payload.boards[0].tasks[0].statusOverride, "todo");
 
-  pendingWrites[1].resolve({
-    data: { updated_at: "2026-01-01T00:00:02.000Z" },
-    error: null,
-  });
+  const secondVersion = pendingWrites[1].envelope.updatedAt;
+  pendingWrites[1].resolve();
   await delay(0);
 
-  realtimeHandler({ new: { payload: running, updated_at: "2026-01-01T00:00:01.000Z" } });
+  realtimeHandler({ payload: running, updatedAt: firstVersion });
   assert.equal(remoteSnapshots.length, 1, "a stale RUNNING echo must be ignored");
 
-  realtimeHandler({ new: { payload: running, updated_at: "2026-01-01T00:00:03.000Z" } });
+  realtimeHandler({ payload: running, updatedAt: secondVersion + 1 });
   assert.equal(remoteSnapshots.length, 2, "a genuinely newer remote edit must still apply");
   sync.stop();
 } finally {

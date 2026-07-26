@@ -13,14 +13,16 @@ import {
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { loadSnapshot, mergeRemoteSnapshot, saveSnapshot } from "./storage";
 import {
+  authenticate as authenticateFirebase,
   clearConfig,
+  currentUser,
   loadConfig,
   makeClient,
   saveConfig,
   SnapshotSync,
-  type SupabaseConfig,
+  type FirebaseConfig,
   type SyncState,
-} from "./supabase";
+} from "./firebase";
 import { appleReferenceSeconds, themeFor, themes, type Snapshot, type TaskBoard, type TaskItem, type TaskStatus } from "./types";
 
 const laneOrder: TaskStatus[] = ["done", "running", "todo"];
@@ -125,9 +127,8 @@ function App() {
 
     async function start() {
       setSyncState("connecting");
-      const { data } = await client.auth.getSession();
+      const user = await currentUser(client.auth);
       if (cancelled) return;
-      const user = data.session?.user;
       if (!user) {
         setSyncState("offline");
         setSyncDetail("Sign in to sync");
@@ -136,7 +137,7 @@ function App() {
 
       const sync = new SnapshotSync(
         client,
-        user.id,
+        user.uid,
         applyRemote,
         (state, detail) => {
           setSyncState(state);
@@ -577,29 +578,35 @@ function ConnectionSheet({
   detail: string;
 }) {
   const existing = loadConfig();
-  const [url, setURL] = useState(existing?.url ?? "");
-  const [anonKey, setAnonKey] = useState(existing?.anonKey ?? "");
+  const [apiKey, setApiKey] = useState(existing?.apiKey ?? "");
+  const [authDomain, setAuthDomain] = useState(existing?.authDomain ?? "");
+  const [databaseURL, setDatabaseURL] = useState(existing?.databaseURL ?? "");
+  const [projectId, setProjectId] = useState(existing?.projectId ?? "");
+  const [appId, setAppId] = useState(existing?.appId ?? "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState(detail);
   const [busy, setBusy] = useState(false);
 
-  const authenticate = async (createAccount: boolean) => {
-    const config: SupabaseConfig = { url: url.trim(), anonKey: anonKey.trim() };
-    if (!config.url || !config.anonKey || !email || !password) {
-      setMessage("Fill in all four fields.");
+  const connect = async (createAccount: boolean) => {
+    const config: FirebaseConfig = {
+      apiKey: apiKey.trim(),
+      authDomain: authDomain.trim(),
+      databaseURL: databaseURL.trim(),
+      projectId: projectId.trim(),
+      appId: appId.trim(),
+    };
+    if (!Object.values(config).every(Boolean) || !email || !password) {
+      setMessage("Fill in all Firebase and account fields.");
       return;
     }
     setBusy(true);
     try {
       const client = makeClient(config);
-      const result = createAccount
-        ? await client.auth.signUp({ email, password })
-        : await client.auth.signInWithPassword({ email, password });
-      if (result.error) throw result.error;
+      await authenticateFirebase(client, email, password, createAccount);
       saveConfig(config);
-      setMessage(createAccount && !result.data.session ? "Check your email, then sign in." : "Connected.");
-      if (result.data.session) onConnected();
+      setMessage("Connected.");
+      onConnected();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not connect");
     } finally {
@@ -620,18 +627,21 @@ function ConnectionSheet({
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section className="sheet" onMouseDown={(event) => event.stopPropagation()}>
         <div className="sheet-handle" />
-        <div className="sheet-heading"><div><span>SYNC</span><h2>Connect Supabase</h2></div><button onClick={onClose}>×</button></div>
-        <p>Your project URL and public anon key are stored only on this device. Your task data is protected by your Supabase login.</p>
-        <label>Project URL<input value={url} onChange={(event) => setURL(event.target.value)} placeholder="https://…supabase.co" /></label>
-        <label>Anon key<input value={anonKey} onChange={(event) => setAnonKey(event.target.value)} type="password" placeholder="eyJ…" /></label>
+        <div className="sheet-heading"><div><span>SYNC</span><h2>Connect Firebase</h2></div><button onClick={onClose}>×</button></div>
+        <p>The Firebase web configuration is public client configuration. Your task data is protected by your Firebase login and database rules.</p>
+        <label>Web API key<input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" /></label>
+        <label>Auth domain<input value={authDomain} onChange={(event) => setAuthDomain(event.target.value)} placeholder="project.firebaseapp.com" /></label>
+        <label>Realtime Database URL<input value={databaseURL} onChange={(event) => setDatabaseURL(event.target.value)} placeholder="https://project-default-rtdb…firebasedatabase.app" /></label>
+        <label>Project ID<input value={projectId} onChange={(event) => setProjectId(event.target.value)} /></label>
+        <label>App ID<input value={appId} onChange={(event) => setAppId(event.target.value)} /></label>
         <div className="credentials">
           <label>Email<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" /></label>
           <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" /></label>
         </div>
         {message ? <div className="connection-message">{message}</div> : null}
         <div className="sheet-actions">
-          <button className="primary-button" disabled={busy} onClick={() => void authenticate(false)}>Sign in</button>
-          <button className="secondary-button" disabled={busy} onClick={() => void authenticate(true)}>Create account</button>
+          <button className="primary-button" disabled={busy} onClick={() => void connect(false)}>Sign in</button>
+          <button className="secondary-button" disabled={busy} onClick={() => void connect(true)}>Create account</button>
         </div>
         <div className="backup-row">
           <label className="file-button">Import JSON<input type="file" accept="application/json" onChange={async (event) => {
