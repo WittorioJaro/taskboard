@@ -1,4 +1,4 @@
-import { makeEmptySnapshot, type Snapshot } from "./types";
+import { makeEmptySnapshot, normalizeSnapshot, type Snapshot } from "./types";
 
 const STORAGE_KEY = "taskboard.snapshot.v1";
 
@@ -7,7 +7,7 @@ export function loadSnapshot(): Snapshot {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return makeEmptySnapshot();
     const snapshot = JSON.parse(raw) as Snapshot;
-    return snapshot.boards?.length ? snapshot : makeEmptySnapshot();
+    return snapshot.boards?.length ? normalizeSnapshot(snapshot) : makeEmptySnapshot();
   } catch {
     return makeEmptySnapshot();
   }
@@ -25,6 +25,7 @@ export function hasUserContent(snapshot: Snapshot): boolean {
 }
 
 export function mergeRemoteSnapshot(local: Snapshot, remote: Snapshot): Snapshot {
+  remote = normalizeSnapshot(remote);
   if (hasUserContent(local) && !hasUserContent(remote)) return local;
   const localSelectionStillExists = remote.boards.some((board) => board.id === local.selectedBoardID);
   return {
