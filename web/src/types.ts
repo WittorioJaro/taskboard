@@ -26,6 +26,19 @@ export type Snapshot = {
   selectedBoardID?: string | null;
 };
 
+export function normalizeSnapshot(snapshot: Snapshot): Snapshot {
+  return {
+    ...snapshot,
+    boards: (snapshot.boards ?? []).map((board) => ({
+      ...board,
+      tasks: (board.tasks ?? []).map((task) => ({
+        ...task,
+        attachments: task.attachments ?? [],
+      })),
+    })),
+  };
+}
+
 export type Theme = {
   id: string;
   start: string;
