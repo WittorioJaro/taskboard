@@ -20,6 +20,7 @@ final class TaskBoardStore {
     private let decoder = JSONDecoder()
     private var cloudSync: CloudKitSyncService?
 #if os(macOS)
+    private var firebaseSync: FirebaseSyncService?
     private var supabaseSync: SupabaseSyncService?
     private var supabaseFallbackTask: Task<Void, Never>?
 #endif
@@ -27,6 +28,7 @@ final class TaskBoardStore {
     init(fileManager: FileManager = .default, enablesCloudSync: Bool = true) {
         persistenceURL = Self.makePersistenceURL(fileManager: fileManager)
 #if os(macOS)
+        firebaseSync = nil
         supabaseSync = nil
         cloudSync = nil
 #else
@@ -362,6 +364,10 @@ final class TaskBoardStore {
 
     func refreshFromCloud() async {
 #if os(macOS)
+        if let firebaseSync {
+            await refreshFromFirebase(firebaseSync)
+            return
+        }
         if let supabaseSync {
             await refreshFromSupabase(supabaseSync)
             return
@@ -408,13 +414,58 @@ final class TaskBoardStore {
 
 #if os(macOS)
     private func startPreferredCloudSync() async {
-        if let supabaseSync = SupabaseSyncService() {
+        if let firebaseSync = FirebaseSyncService() {
+            self.firebaseSync = firebaseSync
+            await startFirebaseSync()
+        } else if let supabaseSync = SupabaseSyncService() {
             self.supabaseSync = supabaseSync
             await startSupabaseSync()
         } else if CloudKitSyncService.isEntitled {
             let cloudSync = CloudKitSyncService()
             self.cloudSync = cloudSync
             await startCloudSync()
+        }
+    }
+
+    private func startFirebaseSync() async {
+        guard let firebaseSync else { return }
+        syncStatus = .syncing
+        do {
+            if let remoteSnapshot = try await firebaseSync.fetchSnapshot() {
+                if currentSnapshot.hasUserContent && !remoteSnapshot.hasUserContent {
+                    try await firebaseSync.save(snapshot: currentSnapshot)
+                } else {
+                    apply(remoteSnapshot)
+                }
+            } else {
+                try await firebaseSync.save(snapshot: currentSnapshot)
+            }
+            firebaseSync.startRealtime { [weak self] remoteSnapshot in
+                guard let self,
+                      self.firebaseSync?.hasPendingSave != true,
+                      remoteSnapshot.cloudRepresentation != self.currentSnapshot.cloudRepresentation else {
+                    return
+                }
+                self.apply(remoteSnapshot)
+                self.syncStatus = .synced
+            }
+            syncStatus = .synced
+        } catch {
+            syncStatus = .error(error.localizedDescription)
+        }
+    }
+
+    private func refreshFromFirebase(_ service: FirebaseSyncService) async {
+        guard !service.hasPendingSave else { return }
+        do {
+            if let remoteSnapshot = try await service.fetchSnapshot(),
+               remoteSnapshot.cloudRepresentation != currentSnapshot.cloudRepresentation,
+               !service.hasPendingSave {
+                apply(remoteSnapshot)
+            }
+            syncStatus = .synced
+        } catch {
+            syncStatus = .error(error.localizedDescription)
         }
     }
 
@@ -495,6 +546,12 @@ final class TaskBoardStore {
         let snapshot = TaskBoardSnapshot(boards: boards, selectedBoardID: selectedBoardID)
         writeSnapshotToDisk(snapshot)
 #if os(macOS)
+        if let firebaseSync {
+            firebaseSync.scheduleSave(snapshot: snapshot) { [weak self] result in
+                self?.applySyncResult(result)
+            }
+            return
+        }
         if let supabaseSync {
             supabaseSync.scheduleSave(snapshot: snapshot) { [weak self] result in
                 self?.applySyncResult(result)

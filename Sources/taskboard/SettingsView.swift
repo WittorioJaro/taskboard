@@ -51,6 +51,7 @@ struct SettingsView: View {
                     }
                 }
 
+                FirebaseSyncSettingsSection()
                 SupabaseSyncSettingsSection()
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -190,6 +191,93 @@ struct SettingsView: View {
 
 }
 
+private struct FirebaseSyncSettingsSection: View {
+    @AppStorage(FirebasePreferences.databaseURLKey) private var databaseURL = ""
+    @AppStorage(FirebasePreferences.apiKeyKey) private var apiKey = ""
+    @AppStorage(FirebasePreferences.emailKey) private var email = ""
+    @State private var password = ""
+    @State private var statusMessage = FirebasePreferences.isConfigured
+        ? "Connected. Firebase is the preferred sync provider."
+        : "Connect the Firebase project used by the iPhone web app."
+    @State private var isConnecting = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Firebase Sync")
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.48))
+                .textCase(.uppercase)
+
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Realtime Database URL", text: $databaseURL)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Web API key", text: $apiKey)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    TextField("Email", text: $email)
+                        .textFieldStyle(.roundedBorder)
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
+                    Button(isConnecting ? "Connecting…" : "Connect Firebase") {
+                        connect(createAccount: false)
+                    }
+                    .disabled(isConnecting || databaseURL.isEmpty || apiKey.isEmpty || email.isEmpty || password.isEmpty)
+
+                    Button("Create Account") {
+                        connect(createAccount: true)
+                    }
+                    .disabled(isConnecting || databaseURL.isEmpty || apiKey.isEmpty || email.isEmpty || password.isEmpty)
+
+                    if FirebasePreferences.isConfigured {
+                        Button("Disconnect") {
+                            FirebaseSyncService.disconnect()
+                            statusMessage = "Disconnected. Restart taskboard to change sync providers."
+                        }
+                        .foregroundStyle(Color.red.opacity(0.82))
+                    }
+                }
+
+                Text(statusMessage)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.primary.opacity(0.5))
+            }
+            .padding(18)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+            )
+        }
+    }
+
+    private func connect(createAccount: Bool) {
+        isConnecting = true
+        statusMessage = "Signing in…"
+        Task {
+            do {
+                try await FirebaseSyncService.authenticate(
+                    databaseURL: databaseURL,
+                    apiKey: apiKey,
+                    email: email,
+                    password: password,
+                    createAccount: createAccount
+                )
+                password = ""
+                statusMessage = "Connected. Restart taskboard once to migrate the local snapshot."
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+            isConnecting = false
+        }
+    }
+}
+
 private struct SupabaseSyncSettingsSection: View {
     @AppStorage(SupabasePreferences.urlKey) private var projectURL = ""
     @AppStorage(SupabasePreferences.anonKeyKey) private var anonKey = ""
@@ -202,7 +290,7 @@ private struct SupabaseSyncSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sync")
+            Text("Legacy Supabase Sync")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color.primary.opacity(0.48))
                 .textCase(.uppercase)
