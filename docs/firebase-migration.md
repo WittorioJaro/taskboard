@@ -14,7 +14,7 @@ Enable:
 
 Publish the exact rules from [`../web/firebase/database.rules.json`](../web/firebase/database.rules.json). They restrict each snapshot to its authenticated owner.
 
-The clients need only public configuration:
+The clients need only browser-visible configuration. Do not commit project-specific values to the repository:
 
 - Web API key
 - Auth domain
