@@ -260,7 +260,7 @@ final class QuickCaptureController: NSObject, ObservableObject {
         }
     }
 
-    func submitDirectlyToCodex() {
+    func submitDirectlyToT3() {
         let prompt = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else {
             focusSeed += 1
@@ -276,35 +276,21 @@ final class QuickCaptureController: NSObject, ObservableObject {
             return
         }
 
-        let attachments = draftAttachments
         store.selectBoard(id: board.id)
         draftTitle = ""
         draftAttachments = []
         syncBoards()
         closeCaptureWindow()
 
-        let runID = CodexRunMonitor.shared.start(
-            boardID: board.id,
-            taskID: taskID,
-            title: prompt,
-            kind: .direct
-        )
-        Task {
-            do {
-                let receipt = try await CodexTaskDispatcher.shared.sendDirect(
-                    boardTitle: board.title,
-                    prompt: prompt,
-                    attachments: attachments,
-                    workspacePath: board.folderPath
-                ) { status in
-                    await MainActor.run {
-                        CodexRunMonitor.shared.apply(status, to: runID)
-                    }
-                }
-                CodexRunMonitor.shared.complete(runID, receipt: receipt)
-            } catch {
-                CodexRunMonitor.shared.fail(runID, error: error)
-            }
+        guard store.board(for: board.id)?.t3ProjectID != nil else {
+            // Unlinked boards keep the task; it can be sent from its row once linked.
+            return
+        }
+        Task { @MainActor in
+            let catalog = T3Catalog.shared
+            if catalog.models.isEmpty { await catalog.refreshModels() }
+            guard let model = T3Dispatch.preferredModel(from: catalog.models) else { return }
+            T3Dispatch.send(taskID: taskID, boardID: board.id, model: model, store: store)
         }
     }
 
@@ -443,7 +429,7 @@ struct QuickCaptureWindowView: View {
                             controller.cycleBoardSelection(reverse: keyPress.modifiers.contains(.shift))
                             return .handled
                         }
-                        .taskSubmitBehavior(onSubmit: controller.submitDirectlyToCodex)
+                        .taskSubmitBehavior(onSubmit: controller.submitDirectlyToT3)
                         .onKeyPress("v", phases: [.down]) { keyPress in
                             guard keyPress.modifiers == .command, TaskAttachmentStore.hasImageOnPasteboard else {
                                 return .ignored
@@ -512,17 +498,15 @@ struct QuickCaptureWindowView: View {
                         .buttonStyle(.plain)
                         .help("Paste image from clipboard (⌘V)")
 
-                        Button(action: controller.submitDirectlyToCodex) {
-                            Image(systemName: "paperplane.fill")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.primary)
+                        Button(action: controller.submitDirectlyToT3) {
+                            T3Glyph(size: 18, tint: .primary)
                             .frame(width: 46, height: 46)
                             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .disabled(isSubmitDisabled)
                         .opacity(isSubmitDisabled ? 0.45 : 1)
-                        .help("Send directly to Codex on main (Return)")
+                        .help("Add and send to T3 Code with your last-used favourite (Return)")
                         .keyboardShortcut(.return, modifiers: [])
 
                         Button(action: controller.submitTask) {

@@ -135,17 +135,17 @@ struct SettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Codex")
+                    Text("T3 Code")
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundStyle(Color.primary.opacity(0.48))
                         .textCase(.uppercase)
 
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("Each board owns its own repository folder. Set or change it with the folder button in the board header.")
+                        Text("Each board links to a T3 Code project. Set or change it with the t3 button in the board header.")
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .foregroundStyle(Color.primary.opacity(0.56))
 
-                        Text("Codex work runs in the background. Created threads remain available in Codex history without opening or focusing the Codex app.")
+                        Text("Click the t3 button on a task to pick one of your T3 favourite models. The task moves to Running, and Taskboard checks the thread in the background and moves the task to Done once T3 settles it.")
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .foregroundStyle(Color.primary.opacity(0.46))
                     }

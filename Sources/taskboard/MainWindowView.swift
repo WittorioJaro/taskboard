@@ -563,9 +563,7 @@ private struct BoardColumnView: View {
     @State private var draggedTaskID: TaskItem.ID?
     @State private var targetedStatus: TaskStatus?
     @State private var showingDeleteConfirmation = false
-    @State private var showingCodexSheet = false
-    @State private var directSendError: String?
-    @State private var runMonitor = CodexRunMonitor.shared
+    @State private var runMonitor = T3RunMonitor.shared
     @FocusState private var isInlineTaskFocused: Bool
 
     private var board: TaskBoard? {
@@ -589,28 +587,7 @@ private struct BoardColumnView: View {
 
                     Spacer(minLength: 8)
 
-                    Button(action: chooseBoardFolder) {
-                        Image(systemName: board.folderPath.isEmpty ? "folder.badge.plus" : "folder.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(board.folderPath.isEmpty ? Color.orange.opacity(0.72) : Color.primary.opacity(0.48))
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .help(board.folderPath.isEmpty ? "Choose this board's folder" : board.folderPath)
-
-                    Button {
-                        store.selectBoard(id: board.id)
-                        showingCodexSheet = true
-                    } label: {
-                        Image(systemName: "paperplane")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(board.theme.accentColor)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Send selected tasks to Codex")
-                    .disabled(board.openTasks.isEmpty)
-                    .opacity(board.openTasks.isEmpty ? 0.45 : 1)
+                    T3ProjectLinkButton(board: board, store: store)
 
                     Menu {
                         Button(board.isPinned ? "Unpin board" : "Pin board") {
@@ -664,10 +641,8 @@ private struct BoardColumnView: View {
                                 task: task,
                                 isCopied: store.copiedTaskID == task.id,
                                 onCopy: { store.copyTask(task) },
-                                codexRun: runMonitor.latestRun(for: task.id),
-                                onSendToCodex: { taskID in
-                                    sendDirectlyToCodex(taskID: taskID, boardID: board.id)
-                                },
+                                t3Run: runMonitor.latestRun(for: task.id),
+                                store: store,
                                 onDone: {
                                     store.markTaskDone(taskID: task.id, in: board.id)
                                 },
@@ -703,10 +678,8 @@ private struct BoardColumnView: View {
                                 task: task,
                                 isCopied: store.copiedTaskID == task.id,
                                 onCopy: { store.copyTask(task) },
-                                codexRun: runMonitor.latestRun(for: task.id),
-                                onSendToCodex: { taskID in
-                                    sendDirectlyToCodex(taskID: taskID, boardID: board.id)
-                                },
+                                t3Run: runMonitor.latestRun(for: task.id),
+                                store: store,
                                 onDone: {
                                     store.markTaskDone(taskID: task.id, in: board.id)
                                 },
@@ -742,10 +715,8 @@ private struct BoardColumnView: View {
                                 task: task,
                                 isCopied: store.copiedTaskID == task.id,
                                 onCopy: { store.copyTask(task) },
-                                codexRun: runMonitor.latestRun(for: task.id),
-                                onSendToCodex: { taskID in
-                                    sendDirectlyToCodex(taskID: taskID, boardID: board.id)
-                                },
+                                t3Run: runMonitor.latestRun(for: task.id),
+                                store: store,
                                 onDone: {
                                     store.markTaskDone(taskID: task.id, in: board.id)
                                 },
@@ -809,17 +780,6 @@ private struct BoardColumnView: View {
             } message: {
                 Text("This will permanently remove \"\(board.title)\" and every task inside it.")
             }
-            .sheet(isPresented: $showingCodexSheet) {
-                CodexSendSheet(store: store, boardID: board.id, isPresented: $showingCodexSheet)
-            }
-            .alert("Could not send to Codex", isPresented: Binding(
-                get: { directSendError != nil },
-                set: { if !$0 { directSendError = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(directSendError ?? "")
-            }
             .onChange(of: isInlineTaskFocused) { _, isFocused in
                 if !isFocused && inlineTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     isAddingInlineTask = false
@@ -829,22 +789,7 @@ private struct BoardColumnView: View {
     }
 
     private func tasks(in lane: TaskStatus, for board: TaskBoard) -> [TaskItem] {
-        board.openTasks.filter { task in
-            if let statusOverride = task.statusOverride {
-                return statusOverride == lane
-            }
-
-            let phase = runMonitor.latestRun(for: task.id)?.phase
-            switch lane {
-            case .done:
-                return phase == .completed
-            case .running:
-                return phase?.isActive == true
-            case .todo:
-                guard let phase else { return true }
-                return !phase.isActive && phase != .completed
-            }
-        }
+        board.openTasks.filter { ($0.statusOverride ?? .todo) == lane }
     }
 
     private func laneTargetBinding(for status: TaskStatus) -> Binding<Bool> {
@@ -926,56 +871,6 @@ private struct BoardColumnView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
             isInlineTaskFocused = true
-        }
-    }
-
-    private func chooseBoardFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            store.setFolderPath(url.path, for: boardID)
-        }
-    }
-
-    private func sendDirectlyToCodex(taskID: TaskItem.ID, boardID: TaskBoard.ID) {
-        guard let board = store.board(for: boardID),
-              let task = store.task(for: taskID, in: boardID) else {
-            directSendError = "This task no longer exists."
-            return
-        }
-
-        let prompt = task.title
-        directSendError = nil
-        store.clearTaskStatusOverride(taskIDs: [taskID], in: boardID)
-        let runID = runMonitor.start(
-            boardID: boardID,
-            taskID: taskID,
-            title: prompt,
-            kind: .direct
-        )
-        Task {
-            do {
-                let receipt = try await CodexTaskDispatcher.shared.sendDirect(
-                    boardTitle: board.title,
-                    prompt: prompt,
-                    attachments: task.attachments,
-                    workspacePath: board.folderPath
-                ) { status in
-                    await MainActor.run {
-                        runMonitor.apply(status, to: runID)
-                    }
-                }
-                await MainActor.run {
-                    runMonitor.complete(runID, receipt: receipt)
-                }
-            } catch {
-                await MainActor.run {
-                    runMonitor.fail(runID, error: error)
-                    directSendError = error.localizedDescription
-                }
-            }
         }
     }
 }
@@ -1217,8 +1112,8 @@ private struct MinimalTaskRow: View {
     let task: TaskItem
     let isCopied: Bool
     let onCopy: () -> Void
-    let codexRun: CodexRunRecord?
-    let onSendToCodex: (TaskItem.ID) -> Void
+    let t3Run: T3RunRecord?
+    @Bindable var store: TaskBoardStore
     let onDone: () -> Void
     let onRename: (String) -> Void
     let isDragged: Bool
@@ -1282,29 +1177,7 @@ private struct MinimalTaskRow: View {
             .buttonStyle(.plain)
             .help(isCopied ? "Copied" : "Copy task")
 
-            Menu {
-                Button(action: codexButtonAction) {
-                    Label(codexMenuTitle, systemImage: codexMenuImage)
-                }
-                .disabled(codexRun?.phase.isActive == true)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(codexRun == nil ? Color.primary.opacity(0.34) : codexStatusColor)
-                    .frame(width: 26, height: 26)
-                    .overlay(alignment: .topTrailing) {
-                        if codexRun != nil {
-                            Circle()
-                                .fill(codexStatusColor)
-                                .frame(width: 4, height: 4)
-                                .symbolEffect(.pulse, isActive: codexRun?.phase.isActive == true)
-                        }
-                    }
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help(codexHelpText)
+            T3TaskButton(board: board, task: task, run: t3Run, store: store)
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())
@@ -1341,15 +1214,6 @@ private struct MinimalTaskRow: View {
         }
     }
 
-    private var codexStatusColor: Color {
-        guard let phase = codexRun?.phase else { return board.theme.accentColor }
-        switch phase {
-        case .completed: return .green
-        case .failed: return .orange
-        default: return board.theme.accentColor
-        }
-    }
-
     private func taskDragProvider() -> NSItemProvider {
         let provider = NSItemProvider(object: task.title as NSString)
         provider.registerDataRepresentation(
@@ -1360,43 +1224,6 @@ private struct MinimalTaskRow: View {
             return nil
         }
         return provider
-    }
-
-    private var codexHelpText: String {
-        guard let codexRun else { return "Send directly to Codex on main" }
-        if let error = codexRun.errorMessage {
-            return error
-        }
-        if let threadID = codexRun.threadID {
-            return "\(codexRun.phase.title) · Thread \(threadID)"
-        }
-        return codexRun.phase.title
-    }
-
-    private var codexMenuTitle: String {
-        guard let phase = codexRun?.phase else { return "Send to Codex" }
-        return switch phase {
-        case .completed: "Open Codex Thread"
-        case .failed: "Retry in Codex"
-        default: phase.title
-        }
-    }
-
-    private var codexMenuImage: String {
-        guard let phase = codexRun?.phase else { return "paperplane" }
-        return switch phase {
-        case .completed: "arrow.up.right.square"
-        case .failed: "arrow.clockwise"
-        default: phase.systemImage
-        }
-    }
-
-    private func codexButtonAction() {
-        if codexRun?.phase == .completed, let threadID = codexRun?.threadID {
-            CodexDesktopBridge.openThread(threadID)
-        } else {
-            onSendToCodex(task.id)
-        }
     }
 
     private func beginTitleEdit() {
@@ -1426,82 +1253,6 @@ private struct MinimalTaskRow: View {
         draftTitle = task.title
         isEditingTitle = false
         isTitleFocused = false
-    }
-}
-
-private struct CodexActivityPanel: View {
-    let runs: [CodexRunRecord]
-    let accentColor: Color
-    let onClear: () -> Void
-
-    private var hasFinishedRuns: Bool {
-        runs.contains { !$0.phase.isActive }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("CODEX ACTIVITY")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color.primary.opacity(0.42))
-                Spacer()
-                Button("Clear finished", action: onClear)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.primary.opacity(0.35))
-                    .disabled(!hasFinishedRuns)
-                    .opacity(hasFinishedRuns ? 1 : 0.4)
-            }
-
-            ForEach(runs) { run in
-                HStack(spacing: 9) {
-                    Image(systemName: run.phase.systemImage)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(color(for: run.phase))
-                        .frame(width: 16)
-                        .symbolEffect(.pulse, isActive: run.phase.isActive)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(run.title)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.primary.opacity(0.82))
-                            .lineLimit(2)
-
-                        HStack(spacing: 5) {
-                            Text(run.phase.title)
-                            if let progress = run.progressText {
-                                Text("· \(progress)")
-                            }
-                            if let threadID = run.threadID {
-                                Text("· …\(CodexDisplayText.threadID(threadID))")
-                            } else if run.phase.isActive {
-                                Text("· thread pending")
-                            }
-                        }
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(color(for: run.phase).opacity(0.8))
-                    }
-
-                    Spacer()
-
-                    Text(run.updatedAt, style: .relative)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.primary.opacity(0.3))
-                }
-                .help(run.errorMessage ?? run.threadID.map { "Codex thread \($0)" } ?? run.phase.title)
-            }
-        }
-        .padding(12)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.06)))
-    }
-
-    private func color(for phase: CodexRunPhase) -> Color {
-        switch phase {
-        case .completed: .green
-        case .failed: .orange
-        default: accentColor
-        }
     }
 }
 
@@ -1668,7 +1419,8 @@ private struct CreateBoardSheet: View {
     @Binding var isPresented: Bool
 
     @State private var boardTitle = ""
-    @State private var folderPath = ""
+    @State private var selectedProject: T3Project?
+    @State private var catalog = T3Catalog.shared
     @FocusState private var isBoardNameFocused: Bool
 
     var body: some View {
@@ -1696,16 +1448,28 @@ private struct CreateBoardSheet: View {
                 .onSubmit(createBoard)
 
             HStack(spacing: 10) {
-                Text(folderPath.isEmpty ? "Choose the repository for this board" : folderPath)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.primary.opacity(folderPath.isEmpty ? 0.42 : 0.72))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                T3Glyph(size: 16, tint: selectedProject == nil ? Color.primary.opacity(0.42) : Color.primary.opacity(0.8))
 
-                Button("Choose Folder", action: chooseFolder)
-                    .buttonStyle(.bordered)
+                Menu {
+                    Button("No T3 project") { selectedProject = nil }
+                    if !catalog.projects.isEmpty { Divider() }
+                    ForEach(catalog.projects.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }) { project in
+                        Button(project.title) { selectedProject = project }
+                    }
+                } label: {
+                    Text(selectedProject?.title ?? (catalog.projectsError == nil ? "Link a T3 Code project" : "T3 Code unavailable"))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.primary.opacity(selectedProject == nil ? 0.42 : 0.72))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .menuStyle(.borderlessButton)
+
+                if catalog.isLoadingProjects {
+                    ProgressView().controlSize(.small)
+                }
             }
+            .task { await catalog.refreshProjects() }
 
             HStack {
                 Button("Cancel") {
@@ -1732,19 +1496,13 @@ private struct CreateBoardSheet: View {
     }
 
     private func createBoard() {
-        store.addBoard(named: boardTitle, folderPath: folderPath)
+        store.addBoard(
+            named: boardTitle,
+            folderPath: selectedProject?.workspaceRoot ?? "",
+            t3Project: selectedProject.map { ($0.id, $0.title) }
+        )
         boardTitle = ""
-        folderPath = ""
+        selectedProject = nil
         isPresented = false
-    }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            folderPath = url.path
-        }
     }
 }

@@ -2,7 +2,13 @@
 
 A small, local-first task manager for macOS, with an optional installable iPhone web app.
 
-taskboard is designed for fast capture and a quiet workflow: create boards, move tasks between Todo, Running, and Done, and send repository-backed work to Codex without leaving the app. The Mac app works entirely offline. Firebase sync is optional and only needed if you want the iPhone PWA and Mac app to share data.
+taskboard is designed for fast capture and a quiet workflow: create boards, move tasks between Todo, Running, and Done, and hand any task to a coding agent in [T3 Code](https://github.com/pingdotgg/t3code) with one click. taskboard tracks the T3 thread and moves the task to Done once you settle it. The Mac app works entirely offline. Firebase sync is optional and only needed if you want the iPhone PWA and Mac app to share data.
+
+<p align="center">
+  <img src="docs/media/taskboard-t3-demo.gif" alt="Sending a taskboard task to T3 Code: pick a favourite model, the task moves to Running, and it moves to Done once the thread is settled" width="460">
+</p>
+
+<p align="center"><a href="docs/media/taskboard-t3-demo.mp4">Watch the full-quality video</a></p>
 
 ## Features
 
@@ -11,9 +17,9 @@ taskboard is designed for fast capture and a quiet workflow: create boards, move
 - Todo, Running, and Done lanes with drag and drop
 - Menu bar companion for open tasks
 - Global Quick Capture window with a configurable shortcut
-- Per-board repository folders
-- Codex queues with branch, model, and reasoning controls
-- Direct prompts to Codex from a board's `main` checkout
+- Boards linked to T3 Code projects
+- One-click sends to T3 Code using your favourite models
+- Background monitoring that moves tasks to Done when their T3 thread is settled
 - Optional Firebase Realtime Database sync with an installable iPhone PWA
 - Offline storage on both Mac and iPhone
 
@@ -127,14 +133,24 @@ Both clients keep a local copy and remain usable while offline. When the Firebas
 
 For the full migration and rollback sequence, see [`docs/firebase-migration.md`](./docs/firebase-migration.md).
 
-## Codex integration
+## T3 Code integration
 
-Assign a local Git repository folder to a board using the folder button in its header.
+taskboard can hand tasks to coding agents running in [T3 Code](https://github.com/pingdotgg/t3code) on the same Mac.
 
-- **Queue runs** can split selected tasks across multiple focused Codex threads. The threads run in order and share one worktree on a new or existing branch.
-- **Direct sends** send one task immediately, without creating a worktree or branch. The configured repository must currently be on `main`.
+1. **Link a board to a project.** Use the **t3** button in the board header to pick a T3 Code project. A project whose folder matches the board's folder is suggested first. New boards can be linked when they are created.
+2. **Send a task.** Click the **t3** icon on a task and choose a model. The list comes from the favourites you starred in T3 Code; press 1–9 to pick by number. taskboard starts a new thread in the linked project with the task text and any image attachments, and moves the task to **Running**.
+3. **Follow it.** The task's icon shows whether the thread is running, needs input, or is ready for review. Click it to see the status or open the thread in T3 Code.
+4. **Finish it.** When you settle the thread in T3 Code, a background check (every 10 seconds) notices and moves the task to **Done**. Monitoring continues after taskboard restarts.
 
-Codex integration expects the Codex desktop app or its bundled CLI to be installed locally. Task management itself does not depend on Codex.
+In Quick Capture, pressing Return adds the task and sends it straight to T3 Code with your last-used model, provided the board is linked.
+
+How it connects:
+
+- taskboard finds the running T3 Code server through `~/.t3/userdata/server-runtime.json` and talks to its local MCP endpoint.
+- The first time, it signs itself in using a one-time pairing code from the `t3` CLI. No browser step is required. The resulting token is stored at `~/Library/Application Support/taskboard/t3-mcp-token`, readable only by your user, and is renewed automatically when it expires or is revoked.
+- Threads are started in full-access mode, so agents can work without stopping for approval prompts. Treat sending a task like typing it into T3 Code yourself.
+
+The integration needs T3 Code running locally. Task management itself does not depend on T3 Code.
 
 ## Data and privacy
 
@@ -157,11 +173,7 @@ swift test
 swift run taskboard
 ```
 
-Four live Codex integration tests are skipped by default. Run them only when you intentionally want the test suite to invoke a locally installed Codex environment:
-
-```bash
-TASKBOARD_RUN_CODEX_INTEGRATION_TESTS=1 swift test
-```
+The T3 Code tests use stubs and fixtures, so they do not need T3 Code to be running.
 
 ### Web app
 
@@ -184,7 +196,9 @@ Sources/taskboard/
   SettingsView.swift          Appearance, sync, and app preferences
   TaskBoardStore.swift        State, task operations, and persistence
   Models.swift                Board, task, attachment, and theme models
-  CodexIntegration.swift      Codex threads, queues, and worktrees
+  T3CodeClient.swift          T3 Code MCP client, sign-in, and favourites
+  T3RunMonitor.swift          Background monitoring of launched T3 threads
+  T3SendPopover.swift         t3 button, model picker, and project linking
   FirebaseSyncService.swift   Preferred Mac authentication and snapshot sync
   SupabaseSyncService.swift   Legacy rollback sync
 web/

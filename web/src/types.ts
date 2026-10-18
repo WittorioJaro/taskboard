@@ -15,6 +15,8 @@ export type TaskBoard = {
   title: string;
   themeID: string;
   folderPath: string;
+  t3ProjectID?: string | null;
+  t3ProjectTitle?: string | null;
   createdAt: number;
   isExpanded: boolean;
   isPinned: boolean;

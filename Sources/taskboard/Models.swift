@@ -84,6 +84,8 @@ struct TaskBoard: Identifiable, Codable, Hashable {
     var title: String
     var themeID: BoardTheme.ID
     var folderPath: String
+    var t3ProjectID: String?
+    var t3ProjectTitle: String?
     let createdAt: Date
     var isExpanded: Bool
     var isPinned: Bool
@@ -94,6 +96,8 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         title: String,
         themeID: BoardTheme.ID = BoardTheme.defaultTheme.id,
         folderPath: String = "",
+        t3ProjectID: String? = nil,
+        t3ProjectTitle: String? = nil,
         createdAt: Date = .now,
         isExpanded: Bool = true,
         isPinned: Bool = false,
@@ -103,6 +107,8 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         self.title = title
         self.themeID = themeID
         self.folderPath = folderPath
+        self.t3ProjectID = t3ProjectID
+        self.t3ProjectTitle = t3ProjectTitle
         self.createdAt = createdAt
         self.isExpanded = isExpanded
         self.isPinned = isPinned
@@ -126,6 +132,8 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         case title
         case themeID
         case folderPath
+        case t3ProjectID
+        case t3ProjectTitle
         case createdAt
         case isExpanded
         case isPinned
@@ -138,6 +146,8 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         title = try container.decode(String.self, forKey: .title)
         themeID = try container.decodeIfPresent(BoardTheme.ID.self, forKey: .themeID) ?? BoardTheme.defaultTheme.id
         folderPath = try container.decodeIfPresent(String.self, forKey: .folderPath) ?? ""
+        t3ProjectID = try container.decodeIfPresent(String.self, forKey: .t3ProjectID)
+        t3ProjectTitle = try container.decodeIfPresent(String.self, forKey: .t3ProjectTitle)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
         isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
@@ -150,6 +160,8 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         try container.encode(title, forKey: .title)
         try container.encode(themeID, forKey: .themeID)
         try container.encode(folderPath, forKey: .folderPath)
+        try container.encodeIfPresent(t3ProjectID, forKey: .t3ProjectID)
+        try container.encodeIfPresent(t3ProjectTitle, forKey: .t3ProjectTitle)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(isExpanded, forKey: .isExpanded)
         try container.encode(isPinned, forKey: .isPinned)
