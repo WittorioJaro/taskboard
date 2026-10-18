@@ -18,6 +18,16 @@ final class T3CodeClientTests: XCTestCase {
         ])
     }
 
+    func testParsesFavoritesNestedUnderClientSettings() {
+        let clientSettings = Data("""
+        {"settings": {"favorites": [{"provider": "claudeAgent", "model": "claude-sonnet-5-5"}]}}
+        """.utf8)
+
+        XCTAssertEqual(T3Parsing.favorites(fromSettings: clientSettings), [
+            T3FavoriteModel(instanceID: "claudeAgent", model: "claude-sonnet-5-5"),
+        ])
+    }
+
     func testJoinsFavoritesWithCatalogLabelsAndDropsMissingProviders() {
         let favorites = [
             T3FavoriteModel(instanceID: "codex", model: "gpt-6-astra"),

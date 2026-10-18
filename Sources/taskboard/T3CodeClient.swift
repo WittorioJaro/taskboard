@@ -101,8 +101,14 @@ enum T3Environment {
         return value.isEmpty ? nil : value
     }
 
+    /// Server and provider settings, including provider accent colours.
     static func settingsData() -> Data? {
         try? Data(contentsOf: userData.appendingPathComponent("settings.json"))
+    }
+
+    /// Client settings, where T3 Code persists starred model favourites.
+    static func clientSettingsData() -> Data? {
+        try? Data(contentsOf: userData.appendingPathComponent("client-settings.json"))
     }
 
     static func threadURL(_ threadID: String) -> URL? {
@@ -126,9 +132,13 @@ enum T3Parsing {
         return URL(string: origin)
     }
 
+    /// Reads favourites from either settings layout: a root-level `favorites`
+    /// array or one nested under `settings`, as `client-settings.json` may store it.
     static func favorites(fromSettings data: Data) -> [T3FavoriteModel] {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let favorites = object["favorites"] as? [[String: Any]] else { return [] }
+              let favorites = object["favorites"] as? [[String: Any]]
+                ?? (object["settings"] as? [String: Any])?["favorites"] as? [[String: Any]]
+        else { return [] }
         var seen = Set<String>()
         return favorites.compactMap { entry in
             guard let instanceID = entry["provider"] as? String ?? entry["instanceId"] as? String,
@@ -313,7 +323,10 @@ actor T3CodeClient {
 
     func favoriteModels() async throws -> [T3ModelOption] {
         let settings = T3Environment.settingsData()
-        let favorites = settings.map(T3Parsing.favorites(fromSettings:)) ?? []
+        let clientFavorites = T3Environment.clientSettingsData().map(T3Parsing.favorites(fromSettings:)) ?? []
+        let favorites = clientFavorites.isEmpty
+            ? settings.map(T3Parsing.favorites(fromSettings:)) ?? []
+            : clientFavorites
         let accents = settings.map(T3Parsing.providerAccents(fromSettings:)) ?? [:]
         guard !favorites.isEmpty else { return [] }
         let capabilities: [String: Any]?
