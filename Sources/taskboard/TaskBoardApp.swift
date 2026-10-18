@@ -98,6 +98,10 @@ struct TaskBoardApp: App {
                 .preferredColorScheme(preferredColorScheme)
                 .task {
                     QuickCaptureController.shared.configure(store: store)
+                    T3RunMonitor.shared.onSettled = { [store] run in
+                        store.moveTask(taskID: run.taskID, in: run.boardID, to: .done)
+                    }
+                    T3RunMonitor.shared.startPolling()
                 }
         }
         .defaultSize(width: 390, height: 700)

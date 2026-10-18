@@ -84,14 +84,16 @@ final class TaskBoardStore {
         }
     }
 
-    func addBoard(named rawTitle: String, folderPath rawFolderPath: String = "") {
+    func addBoard(named rawTitle: String, folderPath rawFolderPath: String = "", t3Project: (id: String, title: String)? = nil) {
         let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let folderPath = rawFolderPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalTitle = title.isEmpty ? suggestedBoardTitle() : title
         let board = TaskBoard(
             title: finalTitle,
             themeID: BoardTheme.random(excluding: Set(boards.map(\.themeID))).id,
-            folderPath: folderPath
+            folderPath: folderPath,
+            t3ProjectID: t3Project?.id,
+            t3ProjectTitle: t3Project?.title
         )
 
         withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
@@ -224,6 +226,17 @@ final class TaskBoardStore {
         persist()
     }
 
+    func linkT3Project(id projectID: String?, title: String?, for boardID: TaskBoard.ID) {
+        guard let boardIndex = boards.firstIndex(where: { $0.id == boardID }),
+              boards[boardIndex].t3ProjectID != projectID || boards[boardIndex].t3ProjectTitle != title else {
+            return
+        }
+
+        boards[boardIndex].t3ProjectID = projectID
+        boards[boardIndex].t3ProjectTitle = projectID == nil ? nil : title
+        persist()
+    }
+
     func moveBoard(draggedID: TaskBoard.ID, to targetID: TaskBoard.ID) {
         guard
             draggedID != targetID,
@@ -307,7 +320,7 @@ final class TaskBoardStore {
             boards[boardIndex].tasks.append(task)
         }
 #if os(macOS)
-        CodexRunMonitor.shared.removeRuns(for: taskID)
+        T3RunMonitor.shared.removeRuns(for: taskID)
 #endif
         persist()
     }
