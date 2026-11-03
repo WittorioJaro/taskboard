@@ -166,6 +166,59 @@ final class FirebaseSyncServiceTests: XCTestCase {
         XCTAssertEqual(store.syncStatus, .synced)
     }
 
+    func testStartupUploadsRecoveredPendingContentNotStaleDiskCopy() async throws {
+        let file = try temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let disk = snapshot("Mac")
+        let storage = file.deletingLastPathComponent().appendingPathComponent("boards.json")
+        try JSONEncoder().encode(disk).write(to: storage)
+        // The pending file holds a queue rebased onto a remote addition that never reached boards.json.
+        var rebased = disk
+        rebased.boards[0].tasks.append(TaskItem(title: "Added remotely"))
+        let beforeRestart = FirebaseSyncService(databaseURL: databaseURL, apiKey: "key", session: session, pendingUploadURL: file, debounceDelay: .seconds(60))
+        beforeRestart.scheduleSave(snapshot: rebased) { _ in }
+        beforeRestart.stop()
+        var uploaded: TaskBoardSnapshot?
+        let service = makeService(pendingUploadURL: file) { request in
+            uploaded = try self.uploadedSnapshot(request)
+            return self.response(request, json: "null")
+        }
+        defer { service.stop() }
+        let store = TaskBoardStore(enablesCloudSync: false, storageURL: storage, watchesExternalEdits: false)
+
+        await store.startFirebaseSync(service, enablesRealtime: false)
+
+        XCTAssertEqual(uploaded?.boards[0].tasks.map(\.title), ["Added remotely"])
+        XCTAssertEqual(store.boards[0].tasks.map(\.title), ["Added remotely"])
+    }
+
+    func testStoppedServiceIgnoresInFlightUploadCompletion() async throws {
+        let file = try temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let uploading = expectation(description: "upload in flight")
+        var release: CheckedContinuation<Void, Never>?
+        let service = makeService(pendingUploadURL: file) { request in
+            await withCheckedContinuation { continuation in
+                release = continuation
+                uploading.fulfill()
+            }
+            return self.response(request, json: "null")
+        }
+        var savedCallbacks = 0
+        service.onSavedSnapshot = { _ in savedCallbacks += 1 }
+        service.scheduleSave(snapshot: snapshot("Old service")) { _ in }
+        await fulfillment(of: [uploading], timeout: 2)
+
+        service.stop()
+        // A replacement service has staged its own pending upload in the shared file.
+        try FirebaseSyncService.stagePendingUpload(snapshot("Replacement"), databaseURL: databaseURL, email: "owner@example.invalid", at: file)
+        release?.resume()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(savedCallbacks, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
     func testLocalEditDuringInitialFetchIsUploadedInsteadOfOverwritten() async throws {
         let storage = try temporaryFile()
         defer { try? FileManager.default.removeItem(at: storage.deletingLastPathComponent()) }

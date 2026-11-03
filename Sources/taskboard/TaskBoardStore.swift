@@ -555,6 +555,13 @@ final class TaskBoardStore {
         do {
             // Durable local edits must be uploaded before accepting cloud data.
             if firebaseSync.hasPendingSave {
+                // The recovered upload may include remote changes merged into it after
+                // boards.json was last written; its baseline already counts them as
+                // synced, so uploading the older disk copy would delete them.
+                let pending = firebaseSync.pendingSnapshot ?? currentSnapshot
+                if pending.cloudRepresentation != currentSnapshot.cloudRepresentation {
+                    apply(pending)
+                }
                 try await firebaseSync.save(snapshot: currentSnapshot)
             } else if let remoteSnapshot = try await firebaseSync.fetchSnapshot() {
                 if firebaseSync.hasPendingSave {

@@ -156,6 +156,9 @@ final class FirebaseSyncService {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
+    /// The queued upload, including one recovered from disk after a restart.
+    var pendingSnapshot: TaskBoardSnapshot? { queuedSnapshot }
+
     var hasPendingSave: Bool {
         debounceTask != nil || queuedSnapshot != nil || isSaving
     }
@@ -407,6 +410,13 @@ final class FirebaseSyncService {
         isSaving = true
         do {
             let saved = try await upload(snapshot: snapshot)
+            // Disconnect/Reconnect can stop us mid-upload; a replacement service
+            // now owns the store callbacks and the shared pending-upload file.
+            guard !stopped else {
+                isSaving = false
+                waiters.forEach { $0.resume(throwing: CancellationError()) }
+                return
+            }
             lastSyncedSnapshot = saved
             if let queued = queuedSnapshot {
                 queuedSnapshot = queued.mergingExternalChanges(from: saved, since: snapshot)
@@ -425,6 +435,10 @@ final class FirebaseSyncService {
             }
         } catch {
             isSaving = false
+            guard !stopped else {
+                waiters.forEach { $0.resume(throwing: CancellationError()) }
+                return
+            }
             if queuedSnapshot == nil { queuedSnapshot = snapshot }
             waiters.forEach { $0.resume(throwing: error) }
             onSyncResult?(.failure(error))
