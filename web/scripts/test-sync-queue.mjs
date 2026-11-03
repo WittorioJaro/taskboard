@@ -99,6 +99,25 @@ try {
   kindleTick.boards[0].tasks[0].isCompleted = true;
   kindleTick.boards[0].tasks[0].completedAt = 123;
   assert.equal(mergeCloudChanges(localRename, kindleTick, base).boards[0].tasks[0].isCompleted, true);
+  // Swift writes UUIDs uppercase; a phone-created lowercase ID is the same record.
+  {
+    const lower = structuredClone(base);
+    lower.boards[0].id = "a1b2c3d4-0000-4000-8000-00000000000a";
+    lower.boards[0].tasks[0].id = "a1b2c3d4-0000-4000-8000-00000000000b";
+    const phone = structuredClone(lower);
+    phone.boards[0].tasks[0].title = "Edited offline on phone";
+    const mac = structuredClone(lower);
+    mac.boards[0].id = mac.boards[0].id.toUpperCase();
+    mac.boards[0].tasks[0].id = mac.boards[0].tasks[0].id.toUpperCase();
+    mac.boards[0].tasks[0].isCompleted = true;
+    for (const baseline of [lower, null]) {
+      const merged = mergeCloudChanges(phone, mac, baseline);
+      assert.equal(merged.boards.length, 1, "board must not be duplicated by ID casing");
+      assert.equal(merged.boards[0].tasks.length, 1, "task must not be duplicated by ID casing");
+      assert.equal(merged.boards[0].tasks[0].title, "Edited offline on phone");
+      if (baseline) assert.equal(merged.boards[0].tasks[0].isCompleted, true);
+    }
+  }
   // Firebase rejects undefined values: merged boards/tasks without optional fields must omit them.
   const hasUndefined = (value) => value === undefined
     || (value !== null && typeof value === "object" && Object.values(value).some(hasUndefined));

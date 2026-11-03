@@ -64,8 +64,11 @@ export const themeFor = (id: string) => themes.find((theme) => theme.id === id) 
 
 export const appleReferenceSeconds = () => (Date.now() - Date.UTC(2001, 0, 1)) / 1000;
 
+/** New IDs match Swift's uppercase UUID encoding, so Mac round-trips keep the same string. */
+export const newID = () => crypto.randomUUID().toUpperCase();
+
 export function makeEmptySnapshot(): Snapshot {
-  const boardID = crypto.randomUUID();
+  const boardID = newID();
   return {
     selectedBoardID: boardID,
     boards: [

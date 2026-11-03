@@ -18,18 +18,22 @@ export function withoutUndefined<T>(value: T): T {
 const equal = (left: unknown, right: unknown) => canonical(left) === canonical(right);
 const field = <T>(base: T, local: T, remote: T): T => equal(base, local) ? remote : local;
 
+/** Swift encodes UUIDs uppercase and browsers generate lowercase; they are the same record. */
+const key = (id: string) => id.toUpperCase();
+
 function mergeItems<T extends { id: string }>(base: T[], local: T[], remote: T[], merge: (base: T, local: T, remote: T) => T): T[] {
-  const bases = new Map(base.map((item) => [item.id, item]));
-  const locals = new Map(local.map((item) => [item.id, item]));
-  const remotes = new Map(remote.map((item) => [item.id, item]));
-  const localOrderChanged = !equal(base.map((item) => item.id), local.map((item) => item.id));
+  const bases = new Map(base.map((item) => [key(item.id), item]));
+  const locals = new Map(local.map((item) => [key(item.id), item]));
+  const remotes = new Map(remote.map((item) => [key(item.id), item]));
+  const localOrderChanged = !equal(base.map((item) => key(item.id)), local.map((item) => key(item.id)));
   const order = localOrderChanged ? [...local, ...remote] : [...remote, ...local];
   const seen = new Set<string>();
   const result: T[] = [];
   for (const item of order) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    const original = bases.get(item.id), ours = locals.get(item.id), theirs = remotes.get(item.id);
+    const id = key(item.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const original = bases.get(id), ours = locals.get(id), theirs = remotes.get(id);
     if (original && ours && theirs) result.push(merge(original, ours, theirs));
     else if (original && ours && !theirs) { if (!equal(original, ours)) result.push(ours); }
     else if (original && !ours) continue;
@@ -69,9 +73,10 @@ function mergeBoard(base: TaskBoard, local: TaskBoard, remote: TaskBoard): TaskB
 export function mergeCloudChanges(local: Snapshot, remote: Snapshot, baseline: Snapshot | null): Snapshot {
   // Without a saved baseline, preserve additions instead of assuming deletes.
   const base = baseline ?? {
-    boards: remote.boards.filter((board) => local.boards.some((candidate) => candidate.id === board.id)).map((board) => ({
+    boards: remote.boards.filter((board) => local.boards.some((candidate) => key(candidate.id) === key(board.id))).map((board) => ({
       ...board,
-      tasks: board.tasks.filter((task) => local.boards.find((candidate) => candidate.id === board.id)!.tasks.some((candidate) => candidate.id === task.id)),
+      tasks: board.tasks.filter((task) => local.boards.find((candidate) => key(candidate.id) === key(board.id))!.tasks
+        .some((candidate) => key(candidate.id) === key(task.id))),
     })),
   };
   return withoutUndefined({ ...local, boards: mergeItems(base.boards, local.boards, remote.boards, mergeBoard) });

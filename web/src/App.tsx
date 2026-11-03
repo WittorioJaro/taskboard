@@ -24,7 +24,7 @@ import {
   type FirebaseConfig,
   type SyncState,
 } from "./firebase";
-import { dayKey, displayBoard, isTodayBoard, appleReferenceSeconds, themeFor, themes, type Snapshot, type TaskBoard, type TaskItem, type TaskStatus } from "./types";
+import { dayKey, displayBoard, newID, isTodayBoard, appleReferenceSeconds, themeFor, themes, type Snapshot, type TaskBoard, type TaskItem, type TaskStatus } from "./types";
 
 const laneOrder: TaskStatus[] = ["done", "running", "todo"];
 const laneMeta: Record<TaskStatus, { label: string; icon: string; empty: string; color: string }> = {
@@ -223,7 +223,7 @@ function App() {
         } : task),
       }));
       if (!boards.some(isTodayBoard)) boards.unshift({
-        id: crypto.randomUUID(), title: "Today", themeID: "sunrise", folderPath: "",
+        id: newID(), title: "Today", themeID: "sunrise", folderPath: "",
         createdAt: appleReferenceSeconds(), isExpanded: true, isPinned: false, tasks: [],
       });
       return { ...current, boards };
@@ -238,7 +238,7 @@ function App() {
       tasks: [
         ...board.tasks,
         {
-          id: crypto.randomUUID(),
+          id: newID(),
           title,
           createdAt: appleReferenceSeconds(),
           isCompleted: false,
@@ -321,7 +321,7 @@ function App() {
 
   const createBoard = () => {
     const title = newBoardTitle.trim() || `Board ${snapshot.boards.length + 1}`;
-    const boardID = crypto.randomUUID();
+    const boardID = newID();
     const usedThemes = new Set(snapshot.boards.map((board) => board.themeID));
     const nextTheme = themes.find((candidate) => !usedThemes.has(candidate.id)) ?? themes[snapshot.boards.length % themes.length];
     beginLocalMutation();
