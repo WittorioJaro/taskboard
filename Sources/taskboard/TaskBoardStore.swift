@@ -564,6 +564,8 @@ final class TaskBoardStore {
                 }
                 try await firebaseSync.save(snapshot: currentSnapshot)
             } else if let remoteSnapshot = try await firebaseSync.fetchSnapshot() {
+                // Disconnect/Reconnect may have replaced this service during the read.
+                guard self.firebaseSync === firebaseSync else { return }
                 if firebaseSync.hasPendingSave {
                     try await firebaseSync.save(snapshot: currentSnapshot)
                 } else if currentSnapshot.hasUserContent && !remoteSnapshot.hasUserContent {
@@ -574,15 +576,18 @@ final class TaskBoardStore {
             } else {
                 try await firebaseSync.save(snapshot: currentSnapshot)
             }
+            guard self.firebaseSync === firebaseSync else { return }
             if !firebaseSync.hasPendingSave { syncStatus = .synced }
         } catch {
+            guard self.firebaseSync === firebaseSync else { return }
             syncStatus = .error(error.localizedDescription)
             NSLog("taskboard Firebase startup error: %@", error.localizedDescription)
         }
         // A temporary startup failure must not disable sync until next launch.
         guard enablesRealtime else { return }
-        firebaseSync.startRealtime(onSnapshot: { [weak self] remoteSnapshot in
-                guard let self, self.firebaseSync?.hasPendingSave != true else { return }
+        firebaseSync.startRealtime(onSnapshot: { [weak self, weak firebaseSync] remoteSnapshot in
+                guard let self, let firebaseSync, self.firebaseSync === firebaseSync,
+                      !firebaseSync.hasPendingSave else { return }
                 if remoteSnapshot.cloudRepresentation != self.currentSnapshot.cloudRepresentation {
                     self.apply(remoteSnapshot)
                 }

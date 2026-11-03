@@ -358,9 +358,10 @@ function App() {
       flushPendingRemote();
       return;
     }
-    // The drop is the newest edit; discard any remote snapshot that arrived
-    // mid-drag so it can't revert the move (our save will overwrite it).
-    pendingRemoteRef.current = null;
+    // Apply any remote snapshot that arrived mid-drag first, then the move on top
+    // (state updates run in order), so the move wins without dropping remote
+    // changes the sync baseline already counts as delivered.
+    flushPendingRemote();
     moveTask(String(active.id), over.id.slice(5) as TaskStatus);
   };
 

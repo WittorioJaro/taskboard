@@ -192,6 +192,39 @@ final class FirebaseSyncServiceTests: XCTestCase {
         XCTAssertEqual(store.boards[0].tasks.map(\.title), ["Added remotely"])
     }
 
+    func testReplacedServiceDoesNotApplyItsStartupFetch() async throws {
+        let storage = try temporaryFile()
+        defer { try? FileManager.default.removeItem(at: storage.deletingLastPathComponent()) }
+        let local = snapshot("Mac")
+        try JSONEncoder().encode(local).write(to: storage)
+        let fetching = expectation(description: "old startup fetch in flight")
+        var release: CheckedContinuation<Void, Never>?
+        let stale = snapshot("Stale cloud")
+        let old = FirebaseSyncService(databaseURL: databaseURL, apiKey: "key", session: session, requestData: { request in
+            await withCheckedContinuation { continuation in
+                release = continuation
+                fetching.fulfill()
+            }
+            let data = try JSONSerialization.data(withJSONObject: [
+                "payload": JSONSerialization.jsonObject(with: JSONEncoder().encode(stale)), "updatedAt": 1,
+            ])
+            return self.response(request, data: data)
+        })
+        let replacement = makeService { request in self.response(request, json: "null") }
+        defer { old.stop(); replacement.stop() }
+        let store = TaskBoardStore(enablesCloudSync: false, storageURL: storage, watchesExternalEdits: false)
+
+        let oldStartup = Task { await store.startFirebaseSync(old, enablesRealtime: false) }
+        await fulfillment(of: [fetching], timeout: 2)
+        old.stop() // Reconnect
+        await store.startFirebaseSync(replacement, enablesRealtime: false)
+        release?.resume()
+        await oldStartup.value
+
+        XCTAssertEqual(store.boards.map(\.title), ["Mac"])
+        XCTAssertEqual(store.syncStatus, .synced)
+    }
+
     func testStoppedServiceIgnoresInFlightUploadCompletion() async throws {
         let file = try temporaryFile()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
