@@ -14,6 +14,9 @@ taskboard is designed for fast capture and a quiet workflow: create boards, move
 
 - Native SwiftUI macOS app with light, dark, and system appearance
 - Multiple boards with local JSON persistence
+- A Today view that selects and ranks tasks while preserving their project boards
+- Optional task deadlines with due-today and overdue cues for you and your agent
+- Optional scoped read/write access for a remote planning agent
 - Todo, Running, and Done lanes with drag and drop
 - Menu bar companion for open tasks
 - Global Quick Capture window with a configurable shortcut
@@ -82,7 +85,7 @@ The PWA is the supported iPhone client. It runs in Safari, can be added to the H
 4. Open the database **Rules** tab, paste [`web/firebase/database.rules.json`](./web/firebase/database.rules.json), and publish it.
 5. In **Project settings → Your apps**, add a Web app and copy its Firebase configuration.
 
-The rules allow an authenticated user to access only `taskboardSnapshots/{their uid}`. Firebase Web configuration is visible to browser clients, but project-specific values must not be committed to this repository. Never provide an Admin SDK service-account key.
+The rules allow an authenticated user to access `taskboardSnapshots/{their uid}`, with optional explicit grants for a separate agent account. See [agent access and Today planning](./docs/remote-agent-access.md). Firebase Web configuration is visible to browser clients, but project-specific values must not be committed to this repository. Never provide an Admin SDK service-account key.
 
 ### 2. Run the PWA locally
 
@@ -133,6 +136,25 @@ Both clients keep a local copy and remain usable while offline. When the Firebas
 
 For the full migration and rollback sequence, see [`docs/firebase-migration.md`](./docs/firebase-migration.md).
 
+## Today and remote agents
+
+Use the sun button on a project task to include it in Today. The task stays in
+its original board, and Today shows its project label. T3 sends still use that
+project. Drag open Todo tasks within the Mac Today view to prioritize them.
+Existing tasks captured directly in Today stay as personal tasks; dated project
+selections expire after the selected day, leaving unfinished tasks in their
+project backlog.
+
+Click **Set deadline** on a task to add an optional calendar date. Deadlines stay
+with the original task and appear in agent data, so the agent can account for
+overdue and upcoming work when planning Today.
+
+An agent can create tasks and submit an ordered daily selection using
+`scripts/taskboard-agent.py`. See [agent access and Today planning](./docs/remote-agent-access.md)
+for scoped Firebase grants, commands, a suggested agent instruction, and the
+local Kindle dashboard integration. Recurring planning runs in the agent's own
+scheduler; that guide also covers deploying the phone app.
+
 ## T3 Code integration
 
 taskboard can hand tasks to coding agents running in [T3 Code](https://github.com/pingdotgg/t3code) on the same Mac.
@@ -160,7 +182,7 @@ Without sync, task data never needs to leave the Mac. The native app stores its 
 ~/Library/Application Support/taskboard/boards.json
 ```
 
-The PWA caches data in browser storage. When Firebase sync is enabled, each authenticated user can access only their own snapshot through the Realtime Database rules. The Mac stores its refresh token in Keychain; project configuration remains local to each client.
+The PWA caches data in browser storage. When Firebase sync is enabled, each authenticated user can access their own snapshot; a separate agent can also access it when explicitly granted through the Realtime Database rules. The Mac stores its refresh token in Keychain; project configuration remains local to each client.
 
 Before experimenting with sync or schema changes, exporting a PWA JSON backup is recommended.
 

@@ -17,6 +17,9 @@ struct TaskItem: Identifiable, Codable, Hashable {
     var statusOverride: TaskStatus?
     var completedAt: Date?
     var attachments: [TaskAttachment]
+    var plannedFor: String?
+    var todayOrder: Int?
+    var dueDate: String?
 
     init(
         id: UUID = UUID(),
@@ -25,7 +28,10 @@ struct TaskItem: Identifiable, Codable, Hashable {
         isCompleted: Bool = false,
         statusOverride: TaskStatus? = nil,
         completedAt: Date? = nil,
-        attachments: [TaskAttachment] = []
+        attachments: [TaskAttachment] = [],
+        plannedFor: String? = nil,
+        todayOrder: Int? = nil,
+        dueDate: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -34,10 +40,13 @@ struct TaskItem: Identifiable, Codable, Hashable {
         self.statusOverride = statusOverride
         self.completedAt = completedAt
         self.attachments = attachments
+        self.plannedFor = plannedFor
+        self.todayOrder = todayOrder
+        self.dueDate = dueDate
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, isCompleted, statusOverride, isManuallyRunning, completedAt, attachments
+        case id, title, createdAt, isCompleted, statusOverride, isManuallyRunning, completedAt, attachments, plannedFor, todayOrder, dueDate
     }
 
     init(from decoder: any Decoder) throws {
@@ -52,6 +61,9 @@ struct TaskItem: Identifiable, Codable, Hashable {
             statusOverride = .running
         }
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        plannedFor = try container.decodeIfPresent(String.self, forKey: .plannedFor)
+        todayOrder = try container.decodeIfPresent(Int.self, forKey: .todayOrder)
+        dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
         attachments = try container.decodeIfPresent([TaskAttachment].self, forKey: .attachments) ?? []
     }
 
@@ -64,6 +76,50 @@ struct TaskItem: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(statusOverride, forKey: .statusOverride)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
         try container.encode(attachments, forKey: .attachments)
+        try container.encodeIfPresent(plannedFor, forKey: .plannedFor)
+        try container.encodeIfPresent(todayOrder, forKey: .todayOrder)
+        try container.encodeIfPresent(dueDate, forKey: .dueDate)
+    }
+}
+
+/// Deadlines are calendar dates, independent of time zones and Today selection.
+enum TaskDeadline {
+    private static var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
+    }
+
+    static func key(for date: Date) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
+    }
+
+    static func date(for key: String?) -> Date? {
+        guard let key, key.count == 10 else { return nil }
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, parts[0] > 0,
+              let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])),
+              Self.key(for: date) == key else { return nil }
+        return date
+    }
+
+    static func isOverdue(_ dueDate: String?, on today: Date = .now) -> Bool {
+        guard let dueDate, date(for: dueDate) != nil else { return false }
+        return dueDate < key(for: today)
+    }
+
+    static func label(for dueDate: String?, relativeTo today: Date = .now) -> String? {
+        guard let dueDate, let date = date(for: dueDate) else { return nil }
+        if dueDate == key(for: today) { return "Due today" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: today), dueDate == key(for: tomorrow) {
+            return "Due tomorrow"
+        }
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: today)
+        let formatted = sameYear
+            ? date.formatted(.dateTime.day().month(.abbreviated))
+            : date.formatted(.dateTime.day().month(.abbreviated).year())
+        return "\(isOverdue(dueDate, on: today) ? "Overdue" : "Due") · \(formatted)"
     }
 }
 
@@ -113,6 +169,10 @@ struct TaskBoard: Identifiable, Codable, Hashable {
         self.isExpanded = isExpanded
         self.isPinned = isPinned
         self.tasks = tasks
+    }
+
+    var isTodayBoard: Bool {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "today"
     }
 
     var theme: BoardTheme {

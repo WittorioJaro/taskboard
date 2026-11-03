@@ -99,7 +99,9 @@ struct TaskBoardApp: App {
                 .task {
                     QuickCaptureController.shared.configure(store: store)
                     T3RunMonitor.shared.onSettled = { [store] run in
-                        store.moveTask(taskID: run.taskID, in: run.boardID, to: .done)
+                        store.withoutUndo {
+                            store.moveTask(taskID: run.taskID, in: run.boardID, to: .done)
+                        }
                     }
                     T3RunMonitor.shared.startPolling()
                 }
@@ -122,7 +124,7 @@ struct TaskBoardApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView()
+            SettingsView(store: store)
                 .preferredColorScheme(preferredColorScheme)
         }
     }

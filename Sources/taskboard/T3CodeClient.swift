@@ -31,6 +31,9 @@ struct T3ThreadState: Equatable, Sendable {
 struct T3LaunchReceipt: Equatable, Sendable {
     let threadID: String
     let status: String?
+    /// T3's own `t3-thread://` reference. Pasted into another thread, T3 shows
+    /// it as a thread chip and agents can resolve it directly.
+    var link: String? = nil
 }
 
 struct T3FavoriteModel: Equatable, Sendable {
@@ -111,9 +114,19 @@ enum T3Environment {
         try? Data(contentsOf: userData.appendingPathComponent("client-settings.json"))
     }
 
+    /// T3 percent-encodes both path segments in its own deep links; launched
+    /// thread ids contain a colon (`mcp:…`), so encode them the same way.
     static func threadURL(_ threadID: String) -> URL? {
         guard let environmentID = environmentID() else { return nil }
-        return URL(string: "t3code://threads/\(environmentID)/\(threadID)")
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        guard let environment = environmentID.addingPercentEncoding(withAllowedCharacters: allowed),
+              let thread = threadID.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: "t3code://threads/\(environment)/\(thread)")
+    }
+
+    /// The `t3-thread://` link T3 uses to reference a thread from another one.
+    static func threadLink(_ threadID: String) -> String? {
+        environmentID().map { "<t3-thread://v2/\($0)/\(threadID)>" }
     }
 
     @MainActor
@@ -210,9 +223,21 @@ enum T3Parsing {
         )
     }
 
+    /// The first line of the task, as `t3 thread start` titles its threads.
+    static func threadTitle(from text: String) -> String {
+        let firstLine = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let line = firstLine.trimmingCharacters(in: .whitespaces)
+        return line.count > 80 ? String(line.prefix(79)).trimmingCharacters(in: .whitespaces) + "…" : line
+    }
+
     static func launchReceipt(from payload: [String: Any]) -> T3LaunchReceipt? {
         guard let threadID = payload["threadId"] as? String else { return nil }
-        return T3LaunchReceipt(threadID: threadID, status: payload["status"] as? String)
+        return T3LaunchReceipt(
+            threadID: threadID,
+            status: payload["status"] as? String,
+            link: payload["link"] as? String
+        )
     }
 
     /// The CLI prints the pairing JSON on stdout; Electron may add log lines around it.
@@ -340,16 +365,21 @@ actor T3CodeClient {
         return T3Parsing.modelOptions(favorites: favorites, capabilities: capabilities, accents: accents)
     }
 
+    /// Follows T3's `t3_thread_launch` contract: a stable `clientRequestId`, so a
+    /// retry after a lost reply returns the same thread instead of a second one,
+    /// then a `t3_thread_read` to confirm the thread exists before reporting it.
     func launchThread(
         projectID: String,
         title: String,
         prompt: String,
         attachments: [TaskAttachment],
-        model: T3ModelOption
+        model: T3ModelOption,
+        clientRequestID: String = UUID().uuidString
     ) async throws -> T3LaunchReceipt {
         var arguments: [String: Any] = [
             "projectId": projectID,
-            "title": String(title.prefix(80)),
+            "title": T3Parsing.threadTitle(from: title),
+            "clientRequestId": clientRequestID,
             "message": prompt,
             "modelSelection": ["instanceId": model.instanceID, "model": model.model],
             "runtimeMode": "full-access",
@@ -358,10 +388,32 @@ actor T3CodeClient {
         let uploaded = try await uploadAttachments(attachments)
         if !uploaded.isEmpty { arguments["attachments"] = uploaded }
 
-        let payload = try await callTool("t3_thread_launch", arguments: arguments)
-        guard let receipt = T3Parsing.launchReceipt(from: payload) else {
+        let payload: [String: Any]
+        do {
+            payload = try await callTool("t3_thread_launch", arguments: arguments)
+        } catch T3CodeError.serverUnavailable, T3CodeError.invalidResponse {
+            // The launch may have committed before the reply was lost.
+            payload = try await callTool("t3_thread_launch", arguments: arguments)
+        }
+        guard var receipt = T3Parsing.launchReceipt(from: payload) else {
             throw T3CodeError.invalidResponse("t3_thread_launch returned no thread id.")
         }
+        do {
+            let state = try await threadState(threadID: receipt.threadID)
+            receipt = T3LaunchReceipt(threadID: state.threadID, status: state.status,
+                                      link: receipt.link ?? T3Environment.threadLink(state.threadID))
+        } catch T3CodeError.threadNotFound {
+            throw T3CodeError.toolFailed("T3 Code accepted the task but did not create its thread. Try sending it again.")
+        } catch {
+            // A transient read failure; the monitor's next poll checks again.
+            if receipt.link == nil { receipt.link = T3Environment.threadLink(receipt.threadID) }
+        }
+        // Give it a real title like threads started in T3, so it is easy to
+        // find and refer to by name. Cosmetic: never fail the send over it.
+        _ = try? await callTool("t3_thread_update", arguments: [
+            "action": "regenerate_title",
+            "threadId": receipt.threadID,
+        ])
         return receipt
     }
 

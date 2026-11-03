@@ -3,10 +3,13 @@ import Carbon
 import SwiftUI
 
 struct SettingsView: View {
+    let store: TaskBoardStore
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var quickCaptureController = QuickCaptureController.shared
     @AppStorage(AppearancePreferences.modeDefaultsKey)
     private var appearanceMode = AppearancePreferences.initialModeRawValue
+    @AppStorage(FirebasePreferences.enabledKey)
+    private var firebaseSyncEnabled = FirebasePreferences.isEnabled
     @AppStorage(WindowPreferences.openMainWindowInCurrentSpaceDefaultsKey)
     private var openMainWindowInCurrentSpace = WindowPreferences.openMainWindowInCurrentSpaceDefaultValue
     @AppStorage(QuickCapturePreferences.closeAfterSubmitDefaultsKey)
@@ -51,8 +54,10 @@ struct SettingsView: View {
                     }
                 }
 
-                FirebaseSyncSettingsSection()
-                SupabaseSyncSettingsSection()
+                FirebaseSyncSettingsSection(store: store)
+                if !firebaseSyncEnabled {
+                    SupabaseSyncSettingsSection()
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Window")
@@ -192,13 +197,14 @@ struct SettingsView: View {
 }
 
 private struct FirebaseSyncSettingsSection: View {
+    let store: TaskBoardStore
     @AppStorage(FirebasePreferences.databaseURLKey) private var databaseURL = ""
     @AppStorage(FirebasePreferences.apiKeyKey) private var apiKey = ""
     @AppStorage(FirebasePreferences.emailKey) private var email = ""
     @State private var password = ""
-    @State private var statusMessage = FirebasePreferences.isConfigured
-        ? "Connected. Firebase is the preferred sync provider."
-        : "Connect the Firebase project used by the iPhone web app."
+    // Keychain lookups can wait for macOS approval. Never run them while
+    // constructing or rendering Settings on the main thread.
+    @State private var statusMessage = ""
     @State private var isConnecting = false
 
     var body: some View {
@@ -231,18 +237,25 @@ private struct FirebaseSyncSettingsSection: View {
                     }
                     .disabled(isConnecting || databaseURL.isEmpty || apiKey.isEmpty || email.isEmpty || password.isEmpty)
 
-                    if FirebasePreferences.isConfigured {
+                    if FirebasePreferences.isEnabled && FirebasePreferences.hasProjectConfiguration {
                         Button("Disconnect") {
                             FirebaseSyncService.disconnect()
-                            statusMessage = "Disconnected. Restart taskboard to change sync providers."
+                            statusMessage = "Disconnected."
+                            Task { await store.reconnectCloudSync() }
                         }
                         .foregroundStyle(Color.red.opacity(0.82))
                     }
                 }
 
-                Text(statusMessage)
+                Text(statusMessage.isEmpty ? "Connect the Firebase project used by the iPhone web app." : statusMessage)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(Color.primary.opacity(0.5))
+
+                if FirebasePreferences.isEnabled {
+                    Text(syncMessage)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.primary.opacity(0.7))
+                }
             }
             .padding(18)
             .background(
@@ -254,6 +267,13 @@ private struct FirebaseSyncSettingsSection: View {
                     )
             )
         }
+    }
+
+    private var syncMessage: String {
+        if case .error(let message) = store.syncStatus {
+            return "Sync paused: \(message). Reconnect above if your session has expired. Local tasks are kept on this Mac."
+        }
+        return store.syncStatus.label
     }
 
     private func connect(createAccount: Bool) {
@@ -269,7 +289,8 @@ private struct FirebaseSyncSettingsSection: View {
                     createAccount: createAccount
                 )
                 password = ""
-                statusMessage = "Connected. Restart taskboard once to migrate the local snapshot."
+                statusMessage = "Signed in to Firebase."
+                await store.reconnectCloudSync()
             } catch {
                 statusMessage = error.localizedDescription
             }

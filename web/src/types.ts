@@ -7,6 +7,9 @@ export type TaskItem = {
   isCompleted: boolean;
   statusOverride?: TaskStatus | null;
   completedAt?: number | null;
+  plannedFor?: string | null;
+  todayOrder?: number | null;
+  dueDate?: string | null;
   attachments: Array<{ id: string; fileName: string; path: string }>;
 };
 
@@ -77,5 +80,24 @@ export function makeEmptySnapshot(): Snapshot {
         tasks: [],
       },
     ],
+  };
+}
+
+// Calendar dates use the device's local timezone, never UTC's date boundary.
+export function dayKey(date = new Date()): string {
+  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export const isTodayBoard = (board: TaskBoard) => board.title.trim().toLowerCase() === "today";
+
+export function displayBoard(snapshot: Snapshot, board: TaskBoard, day = dayKey()): TaskBoard {
+  if (!isTodayBoard(board)) return board;
+  return {
+    ...board,
+    tasks: snapshot.boards.flatMap((source) => source.tasks.filter((task) =>
+      source.id === board.id || task.plannedFor === day,
+    )).sort((left, right) =>
+      (left.plannedFor === day ? left.todayOrder ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER) -
+      (right.plannedFor === day ? right.todayOrder ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER)),
   };
 }

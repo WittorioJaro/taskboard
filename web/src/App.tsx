@@ -11,7 +11,8 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { loadSnapshot, mergeRemoteSnapshot, saveSnapshot } from "./storage";
+import { deadlineLabel, isOverdue, parseDeadline } from "./deadlines";
+import { loadSnapshot, loadSyncBaseline, mergeRemoteSnapshot, saveSnapshot, saveSyncBaseline } from "./storage";
 import {
   authenticate as authenticateFirebase,
   clearConfig,
@@ -23,7 +24,7 @@ import {
   type FirebaseConfig,
   type SyncState,
 } from "./firebase";
-import { appleReferenceSeconds, themeFor, themes, type Snapshot, type TaskBoard, type TaskItem, type TaskStatus } from "./types";
+import { dayKey, displayBoard, isTodayBoard, appleReferenceSeconds, themeFor, themes, type Snapshot, type TaskBoard, type TaskItem, type TaskStatus } from "./types";
 
 const laneOrder: TaskStatus[] = ["done", "running", "todo"];
 const laneMeta: Record<TaskStatus, { label: string; icon: string; empty: string; color: string }> = {
@@ -36,6 +37,11 @@ type ArchivedTask = { boardID: string; task: TaskItem };
 
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>(loadSnapshot);
+  const [day, setDay] = useState(dayKey);
+  useEffect(() => {
+    const timer = window.setInterval(() => setDay(dayKey()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [syncState, setSyncState] = useState<SyncState>("offline");
   const [syncDetail, setSyncDetail] = useState("");
   const [showConnection, setShowConnection] = useState(false);
@@ -46,7 +52,6 @@ function App() {
   const [connectionVersion, setConnectionVersion] = useState(0);
   const [pendingUndo, setPendingUndo] = useState<ArchivedTask | null>(null);
   const syncRef = useRef<SnapshotSync | null>(null);
-  const didInitializeSync = useRef(false);
   const undoTimerRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const pendingRemoteRef = useRef<Snapshot | null>(null);
@@ -55,6 +60,12 @@ function App() {
     return snapshot.boards.find((board) => board.id === snapshot.selectedBoardID) ?? snapshot.boards[0];
   }, [snapshot.boards, snapshot.selectedBoardID]);
   const theme = themeFor(selectedBoard?.themeID ?? "cobalt");
+  const visibleBoard = useMemo(() => displayBoard(snapshot, selectedBoard, day), [snapshot, selectedBoard, day]);
+  const sourceBoards = useMemo(() => {
+    const sources = new Map<string, TaskBoard>();
+    for (const board of snapshot.boards) for (const task of board.tasks) sources.set(task.id, board);
+    return sources;
+  }, [snapshot.boards]);
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -83,17 +94,17 @@ function App() {
     const counts = new Map<string, number>();
     for (const board of snapshot.boards) {
       let count = 0;
-      for (const task of board.tasks) {
+      for (const task of displayBoard(snapshot, board, day).tasks) {
         if (!task.isCompleted) count += 1;
       }
       counts.set(board.id, count);
     }
     return counts;
-  }, [snapshot.boards]);
+  }, [snapshot, day]);
 
   const tasksByLane = useMemo<Record<TaskStatus, TaskItem[]>>(() => {
     const lanes: Record<TaskStatus, TaskItem[]> = { done: [], running: [], todo: [] };
-    for (const task of selectedBoard.tasks) {
+    for (const task of visibleBoard.tasks) {
       if (task.isCompleted) continue;
       const status = task.statusOverride === "running" || task.statusOverride === "done"
         ? task.statusOverride
@@ -101,15 +112,19 @@ function App() {
       lanes[status].push(task);
     }
     return lanes;
-  }, [selectedBoard.tasks]);
+  }, [visibleBoard.tasks]);
 
   const beginLocalMutation = useCallback(() => {
     syncRef.current?.beginLocalMutation();
   }, []);
 
+  const latestSnapshotRef = useRef(snapshot);
   useEffect(() => {
+    latestSnapshotRef.current = snapshot;
     saveSnapshot(snapshot);
-    if (didInitializeSync.current) syncRef.current?.scheduleSave(snapshot);
+    // SnapshotSync ignores this until its first cloud value, then reconciles
+    // with latestSnapshotRef so taps made while it loads are kept.
+    syncRef.current?.scheduleSave(snapshot);
   }, [snapshot]);
 
   useEffect(() => () => {
@@ -124,6 +139,8 @@ function App() {
       return;
     }
     const client = makeClient(config);
+    // Edits made before the first cloud value are measured against this.
+    const loadedSnapshot = latestSnapshotRef.current;
 
     async function start() {
       setSyncState("connecting");
@@ -143,11 +160,16 @@ function App() {
           setSyncState(state);
           setSyncDetail(detail ?? "");
         },
+        undefined,
+        {
+          getLocal: () => latestSnapshotRef.current,
+          baseline: loadSyncBaseline(user.uid),
+          onBaseline: (value) => saveSyncBaseline(user.uid, value),
+        },
       );
       syncRef.current = sync;
       try {
-        await sync.start(snapshot);
-        didInitializeSync.current = true;
+        await sync.start(loadedSnapshot);
       } catch (error) {
         setSyncState("error");
         setSyncDetail(error instanceof Error ? error.message : "Sync failed");
@@ -159,7 +181,6 @@ function App() {
       cancelled = true;
       syncRef.current?.stop();
       syncRef.current = null;
-      didInitializeSync.current = false;
     };
   }, [connectionVersion]);
 
@@ -172,6 +193,42 @@ function App() {
       ),
     }));
   }, [beginLocalMutation]);
+
+  const updateTask = useCallback((taskID: string, mutate: (task: TaskItem) => TaskItem) => {
+    beginLocalMutation();
+    setSnapshot((current) => ({
+      ...current,
+      boards: current.boards.map((board) => board.tasks.some((task) => task.id === taskID)
+        ? { ...board, tasks: board.tasks.map((task) => task.id === taskID ? mutate(task) : task) }
+        : board),
+    }));
+  }, [beginLocalMutation]);
+
+  const setDeadline = useCallback((taskID: string, dueDate: string | null) => {
+    if (dueDate !== null && !parseDeadline(dueDate)) return;
+    updateTask(taskID, (task) => ({ ...task, dueDate }));
+  }, [updateTask]);
+
+  const planTask = useCallback((taskID: string) => {
+    beginLocalMutation();
+    setSnapshot((current) => {
+      const nextOrder = Math.max(-1, ...current.boards.flatMap((board) => board.tasks)
+        .filter((task) => task.plannedFor === day).map((task) => task.todayOrder ?? -1)) + 1;
+      const boards = current.boards.map((board) => ({
+        ...board,
+        tasks: board.tasks.map((task) => task.id === taskID ? {
+          ...task,
+          plannedFor: task.plannedFor === day ? null : day,
+          todayOrder: task.plannedFor === day ? null : nextOrder,
+        } : task),
+      }));
+      if (!boards.some(isTodayBoard)) boards.unshift({
+        id: crypto.randomUUID(), title: "Today", themeID: "sunrise", folderPath: "",
+        createdAt: appleReferenceSeconds(), isExpanded: true, isPinned: false, tasks: [],
+      });
+      return { ...current, boards };
+    });
+  }, [beginLocalMutation, day]);
 
   const addTask = useCallback(() => {
     const title = quickTitle.trim();
@@ -197,15 +254,10 @@ function App() {
 
   const moveTask = useCallback(
     (taskID: string, status: TaskStatus) => {
-      updateSelectedBoard((board) => ({
-        ...board,
-        tasks: board.tasks.map((task) =>
-          task.id === taskID && !task.isCompleted ? { ...task, statusOverride: status } : task,
-        ),
-      }));
+      updateTask(taskID, (task) => task.isCompleted ? task : { ...task, statusOverride: status });
       navigator.vibrate?.(18);
     },
-    [updateSelectedBoard],
+    [updateTask],
   );
 
   const armUndo = useCallback((archived: ArchivedTask) => {
@@ -218,8 +270,8 @@ function App() {
   }, []);
 
   const completeTask = useCallback((taskID: string) => {
-    const boardID = snapshot.selectedBoardID ?? snapshot.boards[0]?.id;
-    const board = snapshot.boards.find((candidate) => candidate.id === boardID);
+    const board = sourceBoards.get(taskID);
+    const boardID = board?.id;
     const task = board?.tasks.find((candidate) => candidate.id === taskID);
     if (!boardID || !task) return;
 
@@ -237,7 +289,7 @@ function App() {
         : candidate),
     }));
     navigator.vibrate?.([15, 35, 15]);
-  }, [armUndo, beginLocalMutation, snapshot]);
+  }, [armUndo, beginLocalMutation, sourceBoards]);
 
   const undoArchive = useCallback(() => {
     if (!pendingUndo) return;
@@ -262,14 +314,9 @@ function App() {
     (taskID: string, rawTitle: string) => {
       const title = rawTitle.trim();
       if (!title) return;
-      updateSelectedBoard((board) => ({
-        ...board,
-        tasks: board.tasks.map((candidate) =>
-          candidate.id === taskID && candidate.title !== title ? { ...candidate, title } : candidate,
-        ),
-      }));
+      updateTask(taskID, (task) => task.title === title ? task : { ...task, title });
     },
-    [updateSelectedBoard],
+    [updateTask],
   );
 
   const createBoard = () => {
@@ -317,7 +364,7 @@ function App() {
     moveTask(String(active.id), over.id.slice(5) as TaskStatus);
   };
 
-  const activeTask = selectedBoard?.tasks.find((task) => task.id === activeTaskID);
+  const activeTask = visibleBoard.tasks.find((task) => task.id === activeTaskID);
 
   return (
     <main className={`app-shell ${activeTaskID ? "is-dragging" : ""}`} style={{ "--accent": theme.accent } as React.CSSProperties}>
@@ -364,6 +411,8 @@ function App() {
         <button type="submit" disabled={!quickTitle.trim()} aria-label="Add task">↑</button>
       </form>
 
+      {isTodayBoard(selectedBoard) ? <p className="today-caption">Your priorities, with each task linked to its project.</p> : null}
+
       <DndContext
         sensors={sensors}
         onDragStart={({ active }: DragStartEvent) => {
@@ -387,6 +436,11 @@ function App() {
                 tasks={tasksByLane[status]}
                 onComplete={completeTask}
                 onRename={renameTask}
+                onDeadline={setDeadline}
+                onPlan={planTask}
+                sourceBoards={sourceBoards}
+                showsProject={isTodayBoard(selectedBoard)}
+                day={day}
               />
             );
           })}
@@ -439,7 +493,17 @@ const Lane = memo(function Lane({
   tasks,
   onComplete,
   onRename,
+  onDeadline,
+  onPlan,
+  sourceBoards,
+  showsProject,
+  day,
 }: {
+  onDeadline: (id: string, dueDate: string | null) => void;
+  onPlan: (id: string) => void;
+  sourceBoards: Map<string, TaskBoard>;
+  showsProject: boolean;
+  day: string;
   status: TaskStatus;
   tasks: TaskItem[];
   onComplete: (id: string) => void;
@@ -458,7 +522,8 @@ const Lane = memo(function Lane({
         {tasks.length === 0 ? (
           <div className="empty-lane"><span>{meta.icon}</span>{meta.empty}</div>
         ) : (
-          tasks.map((task) => <TaskCard key={task.id} task={task} onComplete={onComplete} onRename={onRename} />)
+          tasks.map((task) => <TaskCard key={task.id} task={task} onComplete={onComplete} onRename={onRename}
+            onPlan={onPlan} onDeadline={onDeadline} source={sourceBoards.get(task.id)} showsProject={showsProject} day={day} />)
         )}
       </div>
     </section>
@@ -469,13 +534,24 @@ const TaskCard = memo(function TaskCard({
   task,
   onComplete,
   onRename,
+  onDeadline,
+  onPlan,
+  source,
+  showsProject,
+  day,
 }: {
+  onDeadline: (id: string, dueDate: string | null) => void;
+  onPlan: (id: string) => void;
+  source?: TaskBoard;
+  showsProject: boolean;
+  day: string;
   task: TaskItem;
   onComplete: (id: string) => void;
   onRename: (taskID: string, title: string) => void;
 }) {
   const { listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
   const [isEditing, setIsEditing] = useState(false);
+  const [isEditingDeadline, setIsEditingDeadline] = useState(false);
   const [draft, setDraft] = useState("");
   const cancelledRef = useRef(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -517,6 +593,7 @@ const TaskCard = memo(function TaskCard({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => onComplete(task.id)}
       />
+      <div className="task-content">
       {isEditing ? (
         <textarea
           ref={editorRef}
@@ -551,6 +628,33 @@ const TaskCard = memo(function TaskCard({
           {task.title}
         </button>
       )}
+      <div className="task-metadata">
+        {showsProject && source ? <span className="project-label" style={{ color: themeFor(source.themeID).accent }}>{isTodayBoard(source) ? "Personal" : source.title}</span> : null}
+        {isEditingDeadline ? <div className="deadline-editor" onPointerDown={(event) => event.stopPropagation()}>
+          <input type="date" aria-label={`Deadline for ${task.title}`} value={task.dueDate ?? ""}
+            onChange={(event) => onDeadline(task.id, event.target.value || null)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === "Escape") {
+                event.preventDefault();
+                setIsEditingDeadline(false);
+              }
+            }} />
+          {task.dueDate ? <button type="button" onClick={() => onDeadline(task.id, null)}>Clear</button> : null}
+          <button type="button" onClick={() => setIsEditingDeadline(false)}>Done</button>
+        </div> : <button type="button" className={`deadline-button ${isOverdue(task.dueDate, day) ? "overdue" : task.dueDate === day ? "due-today" : ""}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setIsEditingDeadline(true)} aria-label={`Edit deadline for ${task.title}`}>
+          <span aria-hidden="true">▦</span> {deadlineLabel(task.dueDate, day) ?? "Set deadline"}
+        </button>}
+      </div>
+      </div>
+      {source && !isTodayBoard(source) ? <button
+        className={`today-button ${task.plannedFor === day ? "planned" : ""}`}
+        aria-label={task.plannedFor === day ? "Remove from Today" : "Plan for Today"}
+        aria-pressed={task.plannedFor === day}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => onPlan(task.id)}
+      >☀</button> : null}
     </article>
   );
 });

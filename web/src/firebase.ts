@@ -13,10 +13,11 @@ import {
   getDatabase,
   onValue,
   ref,
-  set,
+  runTransaction,
   type Database,
   type Unsubscribe,
 } from "firebase/database";
+import { mergeCloudChanges } from "./snapshotMerge";
 import { normalizeSnapshot, type Snapshot } from "./types";
 
 export type FirebaseConfig = {
@@ -108,18 +109,30 @@ type SnapshotBackend = {
     onData: (envelope: SnapshotEnvelope | null) => void,
     onError: (error: Error) => void,
   ) => Unsubscribe;
-  write: (envelope: SnapshotEnvelope) => Promise<void>;
+  write: (envelope: SnapshotEnvelope, baseline: Snapshot | null) => Promise<SnapshotEnvelope | void>;
+};
+
+export type SnapshotSyncOptions = {
+  /** Latest UI snapshot, read when the first cloud value arrives. */
+  getLocal?: () => Snapshot;
+  /** The last snapshot this device and the cloud agreed on, kept across reloads. */
+  baseline?: Snapshot | null;
+  onBaseline?: (snapshot: Snapshot) => void;
 };
 
 export class SnapshotSync {
   private unsubscribe: Unsubscribe | null = null;
   private saveTimer: number | null = null;
   private retryTimer: number | null = null;
+  private lastSyncedSnapshot: Snapshot | null = null;
+  private mutationVersion = 0;
   private lastKnownJSON = "";
   private lastKnownVersion = 0;
   private queuedSnapshot: Snapshot | null = null;
+  private deferredRemote: SnapshotEnvelope | null = null;
   private isSaving = false;
   private hasLocalIntent = false;
+  private started = false;
   private stopped = false;
 
   constructor(
@@ -128,10 +141,12 @@ export class SnapshotSync {
     private readonly onRemote: (snapshot: Snapshot) => void,
     private readonly onState: (state: SyncState, detail?: string) => void,
     private readonly injectedBackend?: SnapshotBackend,
+    private readonly options: SnapshotSyncOptions = {},
   ) {}
 
   beginLocalMutation(): void {
     this.hasLocalIntent = true;
+    this.mutationVersion += 1;
   }
 
   private get hasPendingLocalChanges(): boolean {
@@ -149,8 +164,14 @@ export class SnapshotSync {
         (data) => onData(data.val() as SnapshotEnvelope | null),
         onError,
       ),
-      write: async (envelope) => {
-        await set(this.snapshotRef, envelope);
+      write: async (envelope, baseline) => {
+        const result = await runTransaction(this.snapshotRef, (current: SnapshotEnvelope | null) => ({
+          payload: current?.payload
+            ? mergeCloudChanges(envelope.payload, normalizeSnapshot(current.payload), baseline)
+            : envelope.payload,
+          updatedAt: Math.max(Date.now(), (current?.updatedAt ?? 0) + 1),
+        }), { applyLocally: false });
+        return result.snapshot.val() as SnapshotEnvelope;
       },
     };
   }
@@ -163,12 +184,8 @@ export class SnapshotSync {
         (envelope) => {
           if (!handledInitialValue) {
             handledInitialValue = true;
-            if (envelope?.payload) {
-              this.acceptRemote(envelope);
-              resolve();
-            } else {
-              void this.save(local).then(resolve, reject);
-            }
+            this.started = true;
+            this.reconcileInitialValue(envelope, local).then(resolve, reject);
             return;
           }
           if (envelope?.payload) this.acceptRemote(envelope);
@@ -179,8 +196,36 @@ export class SnapshotSync {
     this.onState("synced");
   }
 
+  /**
+   * iOS usually relaunches a Home Screen app from scratch, so the UI starts
+   * from localStorage and the user can tap before the cloud value arrives.
+   * Those edits, and any made offline in an earlier session, are merged into
+   * the cloud value instead of being replaced by it.
+   */
+  private async reconcileInitialValue(envelope: SnapshotEnvelope | null, loaded: Snapshot): Promise<void> {
+    const current = snapshotForSync(normalizeSnapshot(this.options.getLocal?.() ?? loaded));
+    if (!envelope?.payload) {
+      await this.save(current);
+      return;
+    }
+    const reference = snapshotForSync(normalizeSnapshot(this.options.baseline ?? loaded));
+    if (stableStringify(current) === stableStringify(reference)) {
+      this.hasLocalIntent = this.queuedSnapshot !== null;
+      this.acceptRemote(envelope);
+      return;
+    }
+    const remote = snapshotForSync(normalizeSnapshot(envelope.payload));
+    this.lastKnownVersion = envelope.updatedAt;
+    this.lastKnownJSON = stableStringify(remote);
+    this.setBaseline(reference);
+    this.hasLocalIntent = true;
+    this.queuedSnapshot = current;
+    await this.flushSaveQueue();
+  }
+
   scheduleSave(snapshot: Snapshot): void {
     const syncedSnapshot = snapshotForSync(snapshot);
+    if (!this.started) return; // The initial reconciliation reads the latest UI snapshot.
     const json = stableStringify(syncedSnapshot);
     if (!this.hasLocalIntent && !this.isSaving && this.queuedSnapshot === null && json === this.lastKnownJSON) return;
     this.hasLocalIntent = true;
@@ -199,16 +244,35 @@ export class SnapshotSync {
   async save(snapshot: Snapshot): Promise<void> {
     this.beginLocalMutation();
     await this.persistSnapshot(snapshot);
-    this.hasLocalIntent = false;
+    this.finishLocalChanges();
+  }
+
+  private setBaseline(snapshot: Snapshot): void {
+    this.lastSyncedSnapshot = snapshot;
+    this.options.onBaseline?.(snapshot);
   }
 
   private acceptRemote(envelope: SnapshotEnvelope): void {
     const remote = snapshotForSync(normalizeSnapshot(envelope.payload));
     const json = stableStringify(remote);
     if (envelope.updatedAt <= this.lastKnownVersion || json === this.lastKnownJSON) return;
+    if (this.hasPendingLocalChanges) {
+      // Our transaction merges anything committed before it. Keep the newest
+      // value so a write committed after ours is applied once we finish.
+      if (!this.deferredRemote || envelope.updatedAt > this.deferredRemote.updatedAt) this.deferredRemote = envelope;
+      return;
+    }
     this.lastKnownVersion = envelope.updatedAt;
     this.lastKnownJSON = json;
-    if (!this.hasPendingLocalChanges) this.onRemote(normalizeSnapshot(envelope.payload));
+    this.setBaseline(remote);
+    this.onRemote(normalizeSnapshot(envelope.payload));
+  }
+
+  private finishLocalChanges(): void {
+    this.hasLocalIntent = false;
+    const deferred = this.deferredRemote;
+    this.deferredRemote = null;
+    if (deferred && !this.hasPendingLocalChanges) this.acceptRemote(deferred);
   }
 
   private async flushSaveQueue(): Promise<void> {
@@ -237,15 +301,25 @@ export class SnapshotSync {
       await this.flushSaveQueue();
       return;
     }
-    this.hasLocalIntent = false;
+    this.finishLocalChanges();
   }
 
   private async persistSnapshot(snapshot: Snapshot): Promise<void> {
     const syncedSnapshot = snapshotForSync(snapshot);
-    const updatedAt = Date.now();
-    await this.backend.write({ payload: syncedSnapshot, updatedAt });
-    this.lastKnownJSON = stableStringify(syncedSnapshot);
-    this.lastKnownVersion = Math.max(this.lastKnownVersion, updatedAt);
+    const version = this.mutationVersion;
+    const envelope = { payload: syncedSnapshot, updatedAt: Date.now() };
+    const saved = await this.backend.write(envelope, this.lastSyncedSnapshot) ?? envelope;
+    const acknowledged = snapshotForSync(normalizeSnapshot(saved.payload));
+    this.setBaseline(acknowledged);
+    this.lastKnownJSON = stableStringify(acknowledged);
+    this.lastKnownVersion = Math.max(this.lastKnownVersion, saved.updatedAt);
+    if (this.queuedSnapshot) {
+      this.queuedSnapshot = mergeCloudChanges(this.queuedSnapshot, acknowledged, syncedSnapshot);
+    } else if (version === this.mutationVersion) {
+      // A queued write may already include a remote merge absent from the UI.
+      // Apply the final acknowledgement even when this write needed no new merge.
+      this.onRemote(acknowledged);
+    }
     this.onState("synced");
   }
 

@@ -83,6 +83,8 @@ enum T3Dispatch {
         )
         let title = task.title
         let attachments = task.attachments
+        // Reused if the launch is retried, so T3 never creates a duplicate.
+        let clientRequestID = "taskboard-\(runID.uuidString)"
 
         Task {
             do {
@@ -91,7 +93,8 @@ enum T3Dispatch {
                     title: title,
                     prompt: title,
                     attachments: attachments,
-                    model: model
+                    model: model,
+                    clientRequestID: clientRequestID
                 )
                 monitor.attach(receipt, to: runID)
             } catch {
@@ -478,6 +481,19 @@ private struct T3RunStatusCard: View {
             }
 
             Spacer(minLength: 4)
+
+            if let link = run.threadLink ?? run.threadID.flatMap(T3Environment.threadLink) {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(link, forType: .string)
+                } label: {
+                    Image(systemName: "link")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+                .buttonStyle(.plain)
+                .help("Copy thread link to reference it in another T3 thread")
+            }
 
             if let threadID = run.threadID {
                 Button {
