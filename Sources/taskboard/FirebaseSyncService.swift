@@ -425,6 +425,10 @@ final class FirebaseSyncService {
                         email: accountEmail, snapshot: queuedSnapshot!, baseline: saved)
                     try encoder.encode(pending).write(to: pendingUploadURL, options: .atomic)
                 }
+                // Store edits enqueue synchronously, so the store matches the queue we just
+                // rebased. Hand it the merged content now; otherwise the next edit would be
+                // built without the remote changes the new baseline already counts as synced.
+                onSavedSnapshot?(queuedSnapshot!)
             }
             isSaving = false
             waiters.forEach { $0.resume() }

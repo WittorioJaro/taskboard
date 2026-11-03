@@ -296,6 +296,72 @@ try {
     assert.equal(applied.at(-1).boards[0].tasks[0].title, "Renamed on Mac", "a newer cloud write must apply after our save");
     lateSync.stop();
   }
+
+  // A remote addition merged into a queued edit must reach the UI (and the stored
+  // baseline must not run ahead of it), so later edits don't delete it.
+  {
+    const writes = [];
+    const applied = [];
+    const baselines = [];
+    const titled = (title, extra = []) => {
+      const value = structuredClone(base);
+      value.boards[0].tasks[0].title = title;
+      value.boards[0].tasks.push(...extra);
+      return value;
+    };
+    const added = { ...base.boards[0].tasks[0], id: "added", title: "Added by agent" };
+    const rebaseSync = new SnapshotSync({}, "owner", (value) => applied.push(value), () => {}, {
+      listen(onData) { queueMicrotask(() => onData({ payload: base, updatedAt: 1 })); return () => {}; },
+      write(envelope) { return new Promise((resolve) => writes.push({ envelope, resolve })); },
+    }, { getLocal: () => base, baseline: base, onBaseline: (value) => baselines.push(value) });
+    await rebaseSync.start(base);
+    rebaseSync.beginLocalMutation();
+    rebaseSync.scheduleSave(titled("A"));
+    await delay(380);
+    rebaseSync.beginLocalMutation();
+    rebaseSync.scheduleSave(titled("B"));
+    writes[0].resolve({ payload: titled("A", [added]), updatedAt: 5 });
+    await delay(0);
+    assert.deepEqual(applied.at(-1).boards[0].tasks.map((task) => task.title), ["B", "Added by agent"], "UI must get the rebased queue");
+    assert.equal(baselines.at(-1).boards[0].tasks.length, 2);
+
+    // Same, but with a UI edit whose snapshot hasn't reached sync yet.
+    await delay(0);
+    const appliedBefore = applied.length;
+    const baselinesBefore = baselines.length;
+    const added2 = { ...added, id: "added2", title: "Second agent task" };
+    rebaseSync.beginLocalMutation(); // e.g. a tap whose render/effect is still pending
+    writes[1].resolve({ payload: titled("B", [added, added2]), updatedAt: 6 });
+    await delay(0);
+    assert.equal(applied.length, appliedBefore, "must not overwrite a UI edit in progress");
+    assert.equal(baselines.length, baselinesBefore, "stored baseline must not include content the UI lacks");
+    rebaseSync.scheduleSave(titled("C", [added])); // the UI snapshot lacks added2
+    await delay(380);
+    const titles = writes.at(-1).envelope.payload.boards[0].tasks.map((task) => task.title);
+    assert.ok(titles.includes("Second agent task") && titles.includes("C"), `later edit must keep the merged addition: ${titles}`);
+    rebaseSync.stop();
+  }
+
+  // A stopped sync ignores a write that completes later.
+  {
+    let release;
+    const applied = [];
+    const baselines = [];
+    const stoppedSync = new SnapshotSync({}, "owner", (value) => applied.push(value), () => {}, {
+      listen(onData) { queueMicrotask(() => onData({ payload: base, updatedAt: 1 })); return () => {}; },
+      write(envelope) { return new Promise((resolve) => { release = () => resolve({ payload: envelope.payload, updatedAt: 9 }); }); },
+    }, { getLocal: () => base, baseline: base, onBaseline: (value) => baselines.push(value) });
+    await stoppedSync.start(base);
+    const appliedBefore = applied.length, baselinesBefore = baselines.length;
+    stoppedSync.beginLocalMutation();
+    stoppedSync.scheduleSave(running);
+    await delay(380);
+    stoppedSync.stop();
+    release();
+    await delay(0);
+    assert.equal(applied.length, appliedBefore, "a stopped sync must not update the UI");
+    assert.equal(baselines.length, baselinesBefore, "a stopped sync must not store a baseline");
+  }
 } finally {
   await vite.close();
 }

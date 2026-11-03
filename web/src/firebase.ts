@@ -134,6 +134,13 @@ export class SnapshotSync {
   private hasLocalIntent = false;
   private started = false;
   private stopped = false;
+  /** mutationVersion when the UI last handed us a snapshot. */
+  private queuedVersion = 0;
+  /**
+   * Remote changes merged into the queue that the UI has not received yet:
+   * `to` is the rebased queue, `from` the UI content it was rebased from.
+   */
+  private uiBehind: { from: Snapshot; to: Snapshot } | null = null;
 
   constructor(
     private readonly client: FirebaseClient,
@@ -224,8 +231,15 @@ export class SnapshotSync {
   }
 
   scheduleSave(snapshot: Snapshot): void {
-    const syncedSnapshot = snapshotForSync(snapshot);
     if (!this.started) return; // The initial reconciliation reads the latest UI snapshot.
+    let syncedSnapshot = snapshotForSync(snapshot);
+    if (this.uiBehind) {
+      // Keep remote changes the queue already merged even if this UI snapshot predates them.
+      const incoming = stableStringify(syncedSnapshot);
+      syncedSnapshot = mergeCloudChanges(syncedSnapshot, this.uiBehind.to, this.uiBehind.from);
+      if (stableStringify(syncedSnapshot) === incoming) this.uiCaughtUp();
+    }
+    this.queuedVersion = this.mutationVersion;
     const json = stableStringify(syncedSnapshot);
     if (!this.hasLocalIntent && !this.isSaving && this.queuedSnapshot === null && json === this.lastKnownJSON) return;
     this.hasLocalIntent = true;
@@ -249,7 +263,15 @@ export class SnapshotSync {
 
   private setBaseline(snapshot: Snapshot): void {
     this.lastSyncedSnapshot = snapshot;
-    this.options.onBaseline?.(snapshot);
+    // While the UI lacks merged remote content, keep the stored baseline at the older
+    // value: a relaunch would otherwise read that content's absence as a deletion.
+    if (!this.uiBehind) this.options.onBaseline?.(snapshot);
+  }
+
+  private uiCaughtUp(): void {
+    if (!this.uiBehind) return;
+    this.uiBehind = null;
+    if (this.lastSyncedSnapshot) this.options.onBaseline?.(this.lastSyncedSnapshot);
   }
 
   private acceptRemote(envelope: SnapshotEnvelope): void {
@@ -266,6 +288,7 @@ export class SnapshotSync {
     this.lastKnownJSON = json;
     this.setBaseline(remote);
     this.onRemote(normalizeSnapshot(envelope.payload));
+    this.uiCaughtUp(); // The UI now holds the full remote value.
   }
 
   private finishLocalChanges(): void {
@@ -309,17 +332,38 @@ export class SnapshotSync {
     const version = this.mutationVersion;
     const envelope = { payload: syncedSnapshot, updatedAt: Date.now() };
     const saved = await this.backend.write(envelope, this.lastSyncedSnapshot) ?? envelope;
+    // A replacement sync owns the UI and stored baseline after a stop.
+    if (this.stopped) return;
     const acknowledged = snapshotForSync(normalizeSnapshot(saved.payload));
-    this.setBaseline(acknowledged);
-    this.lastKnownJSON = stableStringify(acknowledged);
-    this.lastKnownVersion = Math.max(this.lastKnownVersion, saved.updatedAt);
     if (this.queuedSnapshot) {
-      this.queuedSnapshot = mergeCloudChanges(this.queuedSnapshot, acknowledged, syncedSnapshot);
+      const before = this.queuedSnapshot;
+      const rebased = mergeCloudChanges(before, acknowledged, syncedSnapshot);
+      this.queuedSnapshot = rebased;
+      if (stableStringify(rebased) !== stableStringify(before)) {
+        this.uiBehind = { from: this.uiBehind?.from ?? before, to: rebased };
+      }
+      this.setBaseline(acknowledged);
+      // With no edit since the UI's last snapshot, the UI equals the queue: hand it the
+      // merge now so later edits (and the stored copy) include the remote changes.
+      if (this.uiBehind && this.queuedVersion === this.mutationVersion) {
+        this.onRemote(rebased);
+        this.uiCaughtUp();
+      }
     } else if (version === this.mutationVersion) {
+      this.setBaseline(acknowledged);
       // A queued write may already include a remote merge absent from the UI.
       // Apply the final acknowledgement even when this write needed no new merge.
       this.onRemote(acknowledged);
+      this.uiCaughtUp();
+    } else {
+      // A UI edit started meanwhile; its snapshot will be merged with this result.
+      if (stableStringify(acknowledged) !== stableStringify(syncedSnapshot)) {
+        this.uiBehind = { from: this.uiBehind?.from ?? syncedSnapshot, to: acknowledged };
+      }
+      this.setBaseline(acknowledged);
     }
+    this.lastKnownJSON = stableStringify(acknowledged);
+    this.lastKnownVersion = Math.max(this.lastKnownVersion, saved.updatedAt);
     this.onState("synced");
   }
 

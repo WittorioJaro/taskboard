@@ -250,6 +250,53 @@ final class FirebaseSyncServiceTests: XCTestCase {
         XCTAssertEqual(uploaded?.boards, store.boards)
     }
 
+    func testRemoteAdditionMergedIntoQueuedEditSurvivesLaterEdits() async throws {
+        let storage = try temporaryFile()
+        defer { try? FileManager.default.removeItem(at: storage.deletingLastPathComponent()) }
+        let task = TaskItem(title: "Original")
+        let board = TaskBoard(title: "Project", tasks: [task])
+        var remote = TaskBoardSnapshot(boards: [board], selectedBoardID: board.id)
+        try JSONEncoder().encode(remote).write(to: storage)
+        var gates: [CheckedContinuation<Void, Never>] = []
+        let putStarted: [XCTestExpectation] = (0..<3).map { expectation(description: "PUT \($0)") }
+        var puts = 0
+        let service = FirebaseSyncService(databaseURL: databaseURL, apiKey: "key", session: session,
+            debounceDelay: .milliseconds(1), requestData: { request in
+                if request.httpMethod == "GET" {
+                    let data = try JSONSerialization.data(withJSONObject: [
+                        "payload": JSONSerialization.jsonObject(with: JSONEncoder().encode(remote)), "updatedAt": 1,
+                    ])
+                    return self.response(request, data: data)
+                }
+                let index = puts
+                puts += 1
+                await withCheckedContinuation { continuation in
+                    gates.append(continuation)
+                    putStarted[index].fulfill()
+                }
+                remote = try self.uploadedSnapshot(request)
+                return self.response(request, json: "null")
+            })
+        defer { service.stop() }
+        let store = TaskBoardStore(enablesCloudSync: false, storageURL: storage, watchesExternalEdits: false)
+        await store.startFirebaseSync(service, enablesRealtime: false)
+        remote.boards[0].tasks.append(TaskItem(title: "Added by agent"))
+
+        store.renameTask(taskID: task.id, in: board.id, title: "A")
+        await fulfillment(of: [putStarted[0]], timeout: 2)
+        store.renameTask(taskID: task.id, in: board.id, title: "B") // queued behind A
+        gates.removeFirst().resume()
+        await fulfillment(of: [putStarted[1]], timeout: 2)
+        _ = store.addTask(to: board.id, title: "C") // made while B uploads
+        gates.removeFirst().resume()
+        await fulfillment(of: [putStarted[2]], timeout: 2)
+        gates.removeFirst().resume()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(Set(remote.boards[0].tasks.map(\.title)), ["B", "Added by agent", "C"])
+        XCTAssertEqual(Set(store.boards[0].tasks.map(\.title)), ["B", "Added by agent", "C"])
+    }
+
     func testConditionalUploadRetriesConflictAndPreservesAgentPlanAndLocalRename() async throws {
         let task = TaskItem(title: "Original")
         let base = TaskBoardSnapshot(boards: [TaskBoard(title: "Project", tasks: [task])])
