@@ -99,6 +99,16 @@ try {
   kindleTick.boards[0].tasks[0].isCompleted = true;
   kindleTick.boards[0].tasks[0].completedAt = 123;
   assert.equal(mergeCloudChanges(localRename, kindleTick, base).boards[0].tasks[0].isCompleted, true);
+  // Firebase rejects undefined values: merged boards/tasks without optional fields must omit them.
+  const hasUndefined = (value) => value === undefined
+    || (value !== null && typeof value === "object" && Object.values(value).some(hasUndefined));
+  const plain = structuredClone(base);
+  delete plain.boards[0].t3ProjectID;
+  delete plain.boards[0].t3ProjectTitle;
+  for (const task of plain.boards[0].tasks) for (const key of ["completedAt", "statusOverride", "plannedFor", "todayOrder", "dueDate"]) delete task[key];
+  const plainEdit = structuredClone(plain);
+  plainEdit.boards[0].tasks[0].title = "Edited";
+  assert.equal(hasUndefined(mergeCloudChanges(plainEdit, structuredClone(plain), plain)), false, "merge must not emit undefined fields");
 
   const otherBoard = { ...base.boards[0], id: "other", title: "Other", tasks: [] };
   const localOnOtherTab = { ...base, selectedBoardID: "other", boards: [base.boards[0], otherBoard] };

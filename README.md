@@ -155,6 +155,51 @@ for scoped Firebase grants, commands, a suggested agent instruction, and the
 local Kindle dashboard integration. Recurring planning runs in the agent's own
 scheduler; that guide also covers deploying the phone app.
 
+## Kindle dashboard (how I set mine up)
+
+> **Not a recommendation.** This is a write-up of what I did on my own device,
+> not an endorsement of jailbreaking. Jailbreaking a Kindle is unofficial, may go
+> against Amazon's terms, can void your warranty, and can brick the device if a
+> step goes wrong. Do it only if you understand and accept that, and follow the
+> community guides linked below rather than this summary. taskboard works fully
+> without any of it.
+
+My Today list sits on an e-ink Kindle next to my desk. Tapping a task there ticks
+it off in taskboard, and the change syncs to the Mac and phone.
+
+**Device.** Kindle Paperwhite 4 (10th gen, 1072 × 1448), firmware 5.18.1.
+
+**What runs on the Kindle**
+
+1. **Jailbreak:** [SpiderCat](https://kindlemodding.org/jailbreaking/SpiderCat/),
+   which supports this model and firmware. Check your exact model and firmware
+   against its supported list first.
+2. **Block automatic updates** so a firmware update doesn't undo the jailbreak
+   ([guide](https://kindlemodding.org/jailbreaking/prevent-auto-update/)).
+3. **Hotfix and KPM**, the community package manager
+   ([installing homebrew](https://kindlemodding.org/jailbreaking/whats-next/installing-homebrew.html)).
+4. **[KOReader](https://github.com/koreader/koreader)**, installed through KPM
+   ([guide](https://kindlemodding.org/jailbreaking/whats-next/getting-koreader/)).
+5. **A small custom KOReader plugin** that shows a full-screen image fetched from
+   the Mac, refreshes it every few minutes and on wake, and sends taps back.
+   A top-right button returns to the normal Kindle interface.
+
+**What runs on the Mac**
+
+- A local Python (Flask + Pillow) server that renders the Today list as a
+  1072 × 1448 grayscale PNG and accepts taps. It listens only on the home
+  network, behind long random link tokens.
+- [`integrations/kindle/taskboard_today.py`](./integrations/kindle/taskboard_today.py),
+  which reads the Mac app's local `boards.json` and ticks tasks in their home
+  board. It uses the same file lock as the app, so edits don't collide.
+  `scripts/install-kindle-integration.py` wires it into an existing dashboard server.
+
+The Kindle never talks to Firebase. Changes go Kindle → Mac file → Firebase,
+and the other way back, so the Mac has to be awake and running taskboard. The
+dashboard server and KOReader plugin are specific to my setup and aren't in this
+repository yet; see [agent access and Today planning](./docs/remote-agent-access.md#kindle-dashboard-integration)
+for the data contract they use.
+
 ## T3 Code integration
 
 taskboard can hand tasks to coding agents running in [T3 Code](https://github.com/pingdotgg/t3code) on the same Mac.

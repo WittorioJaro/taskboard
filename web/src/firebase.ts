@@ -17,7 +17,7 @@ import {
   type Database,
   type Unsubscribe,
 } from "firebase/database";
-import { mergeCloudChanges } from "./snapshotMerge";
+import { mergeCloudChanges, withoutUndefined } from "./snapshotMerge";
 import { normalizeSnapshot, type Snapshot } from "./types";
 
 export type FirebaseConfig = {
@@ -168,7 +168,7 @@ export class SnapshotSync {
         const result = await runTransaction(this.snapshotRef, (current: SnapshotEnvelope | null) => ({
           payload: current?.payload
             ? mergeCloudChanges(envelope.payload, normalizeSnapshot(current.payload), baseline)
-            : envelope.payload,
+            : withoutUndefined(envelope.payload),
           updatedAt: Math.max(Date.now(), (current?.updatedAt ?? 0) + 1),
         }), { applyLocally: false });
         return result.snapshot.val() as SnapshotEnvelope;

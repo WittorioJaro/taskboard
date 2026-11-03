@@ -7,6 +7,14 @@ function canonical(value: unknown): string {
   return `{${Object.keys(object).filter((key) => object[key] !== undefined).sort()
     .map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`;
 }
+/** Firebase rejects `undefined` values, so drop absent optional fields before writing. */
+export function withoutUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(withoutUndefined) as T;
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([, child]) => child !== undefined)
+    .map(([key, child]) => [key, withoutUndefined(child)])) as T;
+}
 const equal = (left: unknown, right: unknown) => canonical(left) === canonical(right);
 const field = <T>(base: T, local: T, remote: T): T => equal(base, local) ? remote : local;
 
@@ -66,5 +74,5 @@ export function mergeCloudChanges(local: Snapshot, remote: Snapshot, baseline: S
       tasks: board.tasks.filter((task) => local.boards.find((candidate) => candidate.id === board.id)!.tasks.some((candidate) => candidate.id === task.id)),
     })),
   };
-  return { ...local, boards: mergeItems(base.boards, local.boards, remote.boards, mergeBoard) };
+  return withoutUndefined({ ...local, boards: mergeItems(base.boards, local.boards, remote.boards, mergeBoard) });
 }
