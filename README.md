@@ -14,6 +14,9 @@ taskboard is designed for fast capture and a quiet workflow: create boards, move
 
 - Native SwiftUI macOS app with light, dark, and system appearance
 - Multiple boards with local JSON persistence
+- A Today view that selects and ranks tasks while preserving their project boards
+- Optional task deadlines with due-today and overdue cues for you and your agent
+- Optional scoped read/write access for a remote planning agent
 - Todo, Running, and Done lanes with drag and drop
 - Menu bar companion for open tasks
 - Global Quick Capture window with a configurable shortcut
@@ -82,7 +85,7 @@ The PWA is the supported iPhone client. It runs in Safari, can be added to the H
 4. Open the database **Rules** tab, paste [`web/firebase/database.rules.json`](./web/firebase/database.rules.json), and publish it.
 5. In **Project settings → Your apps**, add a Web app and copy its Firebase configuration.
 
-The rules allow an authenticated user to access only `taskboardSnapshots/{their uid}`. Firebase Web configuration is visible to browser clients, but project-specific values must not be committed to this repository. Never provide an Admin SDK service-account key.
+The rules allow an authenticated user to access `taskboardSnapshots/{their uid}`, with optional explicit grants for a separate agent account. See [agent access and Today planning](./docs/remote-agent-access.md). Firebase Web configuration is visible to browser clients, but project-specific values must not be committed to this repository. Never provide an Admin SDK service-account key.
 
 ### 2. Run the PWA locally
 
@@ -133,6 +136,70 @@ Both clients keep a local copy and remain usable while offline. When the Firebas
 
 For the full migration and rollback sequence, see [`docs/firebase-migration.md`](./docs/firebase-migration.md).
 
+## Today and remote agents
+
+Use the sun button on a project task to include it in Today. The task stays in
+its original board, and Today shows its project label. T3 sends still use that
+project. Drag open Todo tasks within the Mac Today view to prioritize them.
+Existing tasks captured directly in Today stay as personal tasks; dated project
+selections expire after the selected day, leaving unfinished tasks in their
+project backlog.
+
+Click **Set deadline** on a task to add an optional calendar date. Deadlines stay
+with the original task and appear in agent data, so the agent can account for
+overdue and upcoming work when planning Today.
+
+An agent can create tasks and submit an ordered daily selection using
+`scripts/taskboard-agent.py`. See [agent access and Today planning](./docs/remote-agent-access.md)
+for scoped Firebase grants, commands, a suggested agent instruction, and the
+local Kindle dashboard integration. Recurring planning runs in the agent's own
+scheduler; that guide also covers deploying the phone app.
+
+## Kindle dashboard (how I set mine up)
+
+> **Not a recommendation.** This is a write-up of what I did on my own device,
+> not an endorsement of jailbreaking. Jailbreaking a Kindle is unofficial, may go
+> against Amazon's terms, can void your warranty, and can brick the device if a
+> step goes wrong. Do it only if you understand and accept that, and follow the
+> community guides linked below rather than this summary. taskboard works fully
+> without any of it.
+
+My Today list sits on an e-ink Kindle next to my desk. Tapping a task there ticks
+it off in taskboard, and the change syncs to the Mac and phone.
+
+**Device.** Kindle Paperwhite 4 (10th gen, 1072 × 1448), firmware 5.18.1.
+
+**What runs on the Kindle**
+
+1. **Jailbreak:** [SpiderCat](https://kindlemodding.org/jailbreaking/SpiderCat/),
+   which supports this model and firmware. Check your exact model and firmware
+   against its supported list first.
+2. **Block automatic updates** so a firmware update doesn't undo the jailbreak
+   ([guide](https://kindlemodding.org/jailbreaking/prevent-auto-update/)).
+3. **Hotfix and KPM**, the community package manager
+   ([installing homebrew](https://kindlemodding.org/jailbreaking/whats-next/installing-homebrew.html)).
+4. **[KOReader](https://github.com/koreader/koreader)**, installed through KPM
+   ([guide](https://kindlemodding.org/jailbreaking/whats-next/getting-koreader/)).
+5. **A small custom KOReader plugin** that shows a full-screen image fetched from
+   the Mac, refreshes it every few minutes and on wake, and sends taps back.
+   A top-right button returns to the normal Kindle interface.
+
+**What runs on the Mac**
+
+- A local Python (Flask + Pillow) server that renders the Today list as a
+  1072 × 1448 grayscale PNG and accepts taps. It listens only on the home
+  network, behind long random link tokens.
+- [`integrations/kindle/taskboard_today.py`](./integrations/kindle/taskboard_today.py),
+  which reads the Mac app's local `boards.json` and ticks tasks in their home
+  board. It uses the same file lock as the app, so edits don't collide.
+  `scripts/install-kindle-integration.py` wires it into an existing dashboard server.
+
+The Kindle never talks to Firebase. Changes go Kindle → Mac file → Firebase,
+and the other way back, so the Mac has to be awake and running taskboard. The
+dashboard server and KOReader plugin are specific to my setup and aren't in this
+repository yet; see [agent access and Today planning](./docs/remote-agent-access.md#kindle-dashboard-integration)
+for the data contract they use.
+
 ## T3 Code integration
 
 taskboard can hand tasks to coding agents running in [T3 Code](https://github.com/pingdotgg/t3code) on the same Mac.
@@ -160,7 +227,7 @@ Without sync, task data never needs to leave the Mac. The native app stores its 
 ~/Library/Application Support/taskboard/boards.json
 ```
 
-The PWA caches data in browser storage. When Firebase sync is enabled, each authenticated user can access only their own snapshot through the Realtime Database rules. The Mac stores its refresh token in Keychain; project configuration remains local to each client.
+The PWA caches data in browser storage. When Firebase sync is enabled, each authenticated user can access their own snapshot; a separate agent can also access it when explicitly granted through the Realtime Database rules. The Mac stores its refresh token in Keychain; project configuration remains local to each client.
 
 Before experimenting with sync or schema changes, exporting a PWA JSON backup is recommended.
 

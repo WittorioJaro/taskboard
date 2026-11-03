@@ -1,0 +1,26 @@
+# Production builds only need the phone web client.
+.git
+.build
+.derived
+.vercel
+.env*
+.DS_Store
+node_modules
+dist
+DerivedData
+Packages
+Sources
+Tests
+iOS
+macOS
+Assets
+docs
+integrations
+scripts
+taskboard-ios.xcodeproj
+web/node_modules
+web/dist
+web/.env*
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts

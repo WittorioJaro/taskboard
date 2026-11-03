@@ -131,4 +131,28 @@ final class T3CodeClientTests: XCTestCase {
             "t3code://threads/\(environmentID)/thread-1"
         )
     }
+
+    func testThreadURLEncodesLaunchedThreadIDsLikeT3() throws {
+        guard let environmentID = T3Environment.environmentID() else {
+            throw XCTSkip("T3 Code is not installed on this machine.")
+        }
+        XCTAssertEqual(
+            T3Environment.threadURL("mcp:68b4ba1d")?.absoluteString,
+            "t3code://threads/\(environmentID)/mcp%3A68b4ba1d"
+        )
+        XCTAssertEqual(T3Environment.threadLink("mcp:68b4ba1d"), "<t3-thread://v2/\(environmentID)/mcp:68b4ba1d>")
+    }
+
+    func testLaunchReceiptKeepsT3Link() {
+        let receipt = T3Parsing.launchReceipt(from: [
+            "threadId": "mcp:1", "status": "starting", "link": "<t3-thread://v2/env/mcp:1>",
+        ])
+        XCTAssertEqual(receipt?.link, "<t3-thread://v2/env/mcp:1>")
+    }
+
+    func testThreadTitleUsesFirstLineLikeTheT3CLI() {
+        XCTAssertEqual(T3Parsing.threadTitle(from: "  Fix login\nmore detail"), "Fix login")
+        let long = String(repeating: "a", count: 120)
+        XCTAssertEqual(T3Parsing.threadTitle(from: long).count, 80)
+    }
 }

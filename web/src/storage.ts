@@ -34,3 +34,25 @@ export function mergeRemoteSnapshot(local: Snapshot, remote: Snapshot): Snapshot
     selectedBoardID: localSelectionStillExists ? local.selectedBoardID : remote.selectedBoardID,
   };
 }
+
+const BASELINE_KEY = "taskboard.syncBaseline.v1";
+
+/** The last snapshot this device and the cloud agreed on, per account. */
+export function loadSyncBaseline(ownerID: string): Snapshot | null {
+  try {
+    const raw = localStorage.getItem(BASELINE_KEY);
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as { ownerID?: string; snapshot?: Snapshot };
+    return stored.ownerID === ownerID && stored.snapshot?.boards ? normalizeSnapshot(stored.snapshot) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSyncBaseline(ownerID: string, snapshot: Snapshot): void {
+  try {
+    localStorage.setItem(BASELINE_KEY, JSON.stringify({ ownerID, snapshot }));
+  } catch {
+    // A missing baseline only makes the next launch prefer cloud data.
+  }
+}

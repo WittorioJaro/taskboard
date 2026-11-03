@@ -38,7 +38,7 @@ struct MenuBarCompanionView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(store.boards) { board in
+                        ForEach(store.boards.compactMap { store.displayBoard(for: $0.id) }) { board in
                             MenuBarBoardSection(store: store, board: board)
                         }
                     }
@@ -100,13 +100,21 @@ private struct MenuBarTaskRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text(task.title)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.primary.opacity(0.9))
-                    .lineLimit(nil)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(board.isTodayBoard ? "\(store.sourceBoard(for: task.id)?.title ?? "Personal") · \(task.title)" : task.title)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.primary.opacity(0.9))
+                        .lineLimit(nil)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let deadline = TaskDeadline.label(for: task.dueDate) {
+                        Text(deadline)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(TaskDeadline.isOverdue(task.dueDate) ? Color.red : Color.primary.opacity(0.5))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button {
                     store.copyTask(task)
@@ -118,7 +126,7 @@ private struct MenuBarTaskRow: View {
                 .foregroundStyle(board.theme.accentColor)
 
                 Button {
-                    store.markTaskDone(taskID: task.id, in: board.id)
+                    store.markTaskDone(taskID: task.id, in: store.sourceBoard(for: task.id)?.id ?? board.id)
                 } label: {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .bold))

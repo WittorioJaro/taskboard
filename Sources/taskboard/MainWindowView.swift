@@ -11,6 +11,7 @@ struct MainWindowView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
+    @State private var dayKey = TaskBoardStore.dayKey()
     @State private var showingCreateBoardSheet = false
     @State private var quickTaskTitle = ""
     @State private var quickTaskAttachments: [TaskAttachment] = []
@@ -27,7 +28,7 @@ struct MainWindowView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 CompactWindowHeader(
-                    boards: store.boards,
+                    boards: store.boards.compactMap { store.displayBoard(for: $0.id) },
                     selectedBoardID: store.selectedBoardID,
                     draggedBoardID: $draggedBoardID,
                     onSelectBoard: store.selectBoard,
@@ -62,7 +63,7 @@ struct MainWindowView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
-                        .id(selectedBoardID)
+                        .id("\(selectedBoardID)-\(dayKey)")
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                     }
                     .scrollIndicators(.hidden)
@@ -92,6 +93,12 @@ struct MainWindowView: View {
         .task {
             ensureSelectedBoard()
             requestQuickEntryFocus()
+        }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                dayKey = TaskBoardStore.dayKey()
+            }
         }
         .onChange(of: showingCreateBoardSheet) { _, isPresented in
             if !isPresented {
@@ -567,7 +574,7 @@ private struct BoardColumnView: View {
     @FocusState private var isInlineTaskFocused: Bool
 
     private var board: TaskBoard? {
-        store.board(for: boardID)
+        store.displayBoard(for: boardID)
     }
 
     var body: some View {
@@ -580,14 +587,16 @@ private struct BoardColumnView: View {
                             .foregroundStyle(Color.primary.opacity(0.94))
                             .lineLimit(1)
 
-                        Text("\(board.openTasks.count) active · \(board.completedCount) archived")
+                        Text(board.isTodayBoard ? "Selected from your projects · drag to prioritize" : "\(board.openTasks.count) active · \(board.completedCount) archived")
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color.primary.opacity(0.34))
                     }
 
                     Spacer(minLength: 8)
 
-                    T3ProjectLinkButton(board: board, store: store)
+                    if !board.isTodayBoard {
+                        T3ProjectLinkButton(board: board, store: store)
+                    }
 
                     Menu {
                         Button(board.isPinned ? "Unpin board" : "Pin board") {
@@ -637,17 +646,18 @@ private struct BoardColumnView: View {
                     ) {
                         ForEach(doneTasks) { task in
                             MinimalTaskRow(
-                                board: board,
+                                board: store.sourceBoard(for: task.id) ?? board,
                                 task: task,
+                                showsProject: board.isTodayBoard,
                                 isCopied: store.copiedTaskID == task.id,
                                 onCopy: { store.copyTask(task) },
                                 t3Run: runMonitor.latestRun(for: task.id),
                                 store: store,
                                 onDone: {
-                                    store.markTaskDone(taskID: task.id, in: board.id)
+                                    store.markTaskDone(taskID: task.id, in: store.sourceBoard(for: task.id)?.id ?? board.id)
                                 },
                                 onRename: { newTitle in
-                                    store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                    store.renameTask(taskID: task.id, in: store.sourceBoard(for: task.id)?.id ?? board.id, title: newTitle)
                                 },
                                 isDragged: draggedTaskID == task.id,
                                 onDragStart: { draggedTaskID = task.id }
@@ -674,17 +684,18 @@ private struct BoardColumnView: View {
                     ) {
                         ForEach(runningTasks) { task in
                             MinimalTaskRow(
-                                board: board,
+                                board: store.sourceBoard(for: task.id) ?? board,
                                 task: task,
+                                showsProject: board.isTodayBoard,
                                 isCopied: store.copiedTaskID == task.id,
                                 onCopy: { store.copyTask(task) },
                                 t3Run: runMonitor.latestRun(for: task.id),
                                 store: store,
                                 onDone: {
-                                    store.markTaskDone(taskID: task.id, in: board.id)
+                                    store.markTaskDone(taskID: task.id, in: store.sourceBoard(for: task.id)?.id ?? board.id)
                                 },
                                 onRename: { newTitle in
-                                    store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                    store.renameTask(taskID: task.id, in: store.sourceBoard(for: task.id)?.id ?? board.id, title: newTitle)
                                 },
                                 isDragged: draggedTaskID == task.id,
                                 onDragStart: { draggedTaskID = task.id }
@@ -711,17 +722,18 @@ private struct BoardColumnView: View {
                     ) {
                         ForEach(todoTasks) { task in
                             MinimalTaskRow(
-                                board: board,
+                                board: store.sourceBoard(for: task.id) ?? board,
                                 task: task,
+                                showsProject: board.isTodayBoard,
                                 isCopied: store.copiedTaskID == task.id,
                                 onCopy: { store.copyTask(task) },
                                 t3Run: runMonitor.latestRun(for: task.id),
                                 store: store,
                                 onDone: {
-                                    store.markTaskDone(taskID: task.id, in: board.id)
+                                    store.markTaskDone(taskID: task.id, in: store.sourceBoard(for: task.id)?.id ?? board.id)
                                 },
                                 onRename: { newTitle in
-                                    store.renameTask(taskID: task.id, in: board.id, title: newTitle)
+                                    store.renameTask(taskID: task.id, in: store.sourceBoard(for: task.id)?.id ?? board.id, title: newTitle)
                                 },
                                 isDragged: draggedTaskID == task.id,
                                 onDragStart: { draggedTaskID = task.id }
@@ -764,7 +776,7 @@ private struct BoardColumnView: View {
                     try? await Task.sleep(for: .milliseconds(200))
                     if draggedTaskID == newValue {
                         if let originLane {
-                            store.moveTask(taskID: newValue, in: boardID, to: originLane)
+                            store.moveTask(taskID: newValue, in: store.sourceBoard(for: newValue)?.id ?? boardID, to: originLane)
                         }
                         draggedTaskID = nil
                         targetedStatus = nil
@@ -807,12 +819,12 @@ private struct BoardColumnView: View {
 
     private func moveDraggedTask(to status: TaskStatus) {
         guard let draggedTaskID else { return }
-        store.moveTask(taskID: draggedTaskID, in: boardID, to: status)
+        store.moveTask(taskID: draggedTaskID, in: store.sourceBoard(for: draggedTaskID)?.id ?? boardID, to: status)
     }
 
     private func performStatusDrop(to status: TaskStatus) -> Bool {
         guard let draggedTaskID else { return false }
-        store.moveTask(taskID: draggedTaskID, in: boardID, to: status)
+        store.moveTask(taskID: draggedTaskID, in: store.sourceBoard(for: draggedTaskID)?.id ?? boardID, to: status)
         self.draggedTaskID = nil
         targetedStatus = nil
         return true
@@ -1110,6 +1122,7 @@ private struct InlineTaskEntryRow: View {
 private struct MinimalTaskRow: View {
     let board: TaskBoard
     let task: TaskItem
+    var showsProject: Bool = false
     let isCopied: Bool
     let onCopy: () -> Void
     let t3Run: T3RunRecord?
@@ -1158,6 +1171,17 @@ private struct MinimalTaskRow: View {
                     }
                 }
 
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        projectLabel
+                        deadlineButton
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        projectLabel
+                        deadlineButton
+                    }
+                }
+
                 AttachmentDraftStrip(attachments: task.attachments)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1176,6 +1200,19 @@ private struct MinimalTaskRow: View {
             }
             .buttonStyle(.plain)
             .help(isCopied ? "Copied" : "Copy task")
+
+            if !board.isTodayBoard {
+                Button {
+                    store.planTask(taskID: task.id, in: board.id,
+                                   for: task.plannedFor == TaskBoardStore.dayKey() ? nil : .now)
+                } label: {
+                    Image(systemName: task.plannedFor == TaskBoardStore.dayKey() ? "sun.max.fill" : "sun.max")
+                        .font(.system(size: 11))
+                        .foregroundStyle(task.plannedFor == TaskBoardStore.dayKey() ? board.theme.accentColor : Color.primary.opacity(0.35))
+                }
+                .buttonStyle(.plain)
+                .help(task.plannedFor == TaskBoardStore.dayKey() ? "Remove from Today" : "Plan for Today")
+            }
 
             T3TaskButton(board: board, task: task, run: t3Run, store: store)
         }
@@ -1211,6 +1248,20 @@ private struct MinimalTaskRow: View {
             if !isFocused && isEditingTitle {
                 commitTitleEdit()
             }
+        }
+    }
+
+    @ViewBuilder private var projectLabel: some View {
+        if showsProject {
+            Text(board.isTodayBoard ? "Personal" : board.title)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(board.theme.accentColor)
+        }
+    }
+
+    private var deadlineButton: some View {
+        TaskDeadlineButton(dueDate: task.dueDate, accent: board.theme.accentColor) { date in
+            store.setTaskDeadline(taskID: task.id, in: board.id, date: date)
         }
     }
 
@@ -1256,6 +1307,40 @@ private struct MinimalTaskRow: View {
     }
 }
 
+private struct TaskDeadlineButton: View {
+    let dueDate: String?
+    let accent: Color
+    let onSave: (Date?) -> Void
+    @State private var isPresented = false
+
+    private var tint: Color {
+        if TaskDeadline.isOverdue(dueDate) { return .red }
+        if dueDate == TaskDeadline.key(for: .now) { return .orange }
+        return Color.primary.opacity(0.44)
+    }
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Label(TaskDeadline.label(for: dueDate) ?? "Set deadline", systemImage: "calendar")
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .foregroundStyle(tint)
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .help(dueDate.map { "Edit deadline: \($0)" } ?? "Set a deadline")
+        .popover(isPresented: $isPresented) {
+            TaskDeadlinePicker(dueDate: dueDate, accent: accent) { date in
+                onSave(date)
+                isPresented = false
+            } onCancel: {
+                isPresented = false
+            }
+        }
+    }
+}
+
 private struct BoardReorderDropDelegate: DropDelegate {
     let store: TaskBoardStore
     let targetBoardID: TaskBoard.ID
@@ -1292,8 +1377,12 @@ private struct TaskReorderDropDelegate: DropDelegate {
             return
         }
 
-        store.moveTask(taskID: draggedTaskID, in: boardID, to: .todo)
-        store.moveOpenTask(draggedID: draggedTaskID, in: boardID, to: targetTaskID)
+        store.moveTask(taskID: draggedTaskID, in: store.sourceBoard(for: draggedTaskID)?.id ?? boardID, to: .todo)
+        if store.board(for: boardID)?.isTodayBoard == true {
+            store.prioritizeTodayTask(taskID: draggedTaskID, before: targetTaskID)
+        } else {
+            store.moveOpenTask(draggedID: draggedTaskID, in: boardID, to: targetTaskID)
+        }
     }
 
     func performDrop(info: DropInfo) -> Bool {

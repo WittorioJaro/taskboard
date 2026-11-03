@@ -2,10 +2,22 @@
   "rules": {
     "taskboardSnapshots": {
       "$uid": {
-        ".read": "auth != null && auth.uid == $uid",
-        ".write": "auth != null && auth.uid == $uid",
-        ".validate": "newData.hasChildren(['payload', 'updatedAt'])"
+        ".read": "auth != null && (auth.uid == $uid || root.child('agentWriters').child($uid).child(auth.uid).val() === true)",
+        ".write": "auth != null && (auth.uid == $uid || (root.child('agentWriters').child($uid).child(auth.uid).val() === true && newData.exists()))",
+        ".validate": "newData.hasChildren(['payload', 'updatedAt']) && newData.child('updatedAt').isNumber()",
+        "payload": {
+          ".read": "auth != null && root.child('agentReaders').child($uid).child(auth.uid).val() === true",
+          ".validate": "newData.hasChildren(['boards'])"
+        }
       }
+    },
+    "agentReaders": {
+      ".read": false,
+      ".write": false
+    },
+    "agentWriters": {
+      ".read": false,
+      ".write": false
     }
   }
 }

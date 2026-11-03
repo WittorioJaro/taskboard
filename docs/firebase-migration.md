@@ -49,3 +49,20 @@ The migration does not delete Supabase data or its saved session.
 4. Import the exported JSON if Firebase contained changes missing from Supabase.
 
 Do not run both providers at once. Firebase takes precedence whenever its authenticated session is configured.
+
+## Recovering interrupted sync
+
+The Mac keeps pending Firebase uploads beside `boards.json` in
+`firebase-pending-upload.json`. Failed uploads retry automatically and survive an
+app restart. Pending local edits are uploaded before accepting a cloud snapshot
+on startup. Do not delete the pending file while recovering offline changes.
+
+Settings → Firebase Sync shows the current sync status and the last error. If the
+saved session has expired or been revoked, sign in again there; reconnecting takes
+effect immediately. macOS may also require approval to access the saved session
+in Keychain. That approval does not require sending your Mac password to anyone.
+
+Before choosing one divergent snapshot as the source of truth, back up both the
+local JSON and the Firebase envelope. Replacing the cloud snapshot with the latest
+Mac copy intentionally preserves the Mac's deletions as well as its new tasks;
+an automatic union could resurrect tasks that were deliberately removed.

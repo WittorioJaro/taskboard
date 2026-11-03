@@ -7,6 +7,9 @@ export type TaskItem = {
   isCompleted: boolean;
   statusOverride?: TaskStatus | null;
   completedAt?: number | null;
+  plannedFor?: string | null;
+  todayOrder?: number | null;
+  dueDate?: string | null;
   attachments: Array<{ id: string; fileName: string; path: string }>;
 };
 
@@ -61,8 +64,11 @@ export const themeFor = (id: string) => themes.find((theme) => theme.id === id) 
 
 export const appleReferenceSeconds = () => (Date.now() - Date.UTC(2001, 0, 1)) / 1000;
 
+/** New IDs match Swift's uppercase UUID encoding, so Mac round-trips keep the same string. */
+export const newID = () => crypto.randomUUID().toUpperCase();
+
 export function makeEmptySnapshot(): Snapshot {
-  const boardID = crypto.randomUUID();
+  const boardID = newID();
   return {
     selectedBoardID: boardID,
     boards: [
@@ -77,5 +83,24 @@ export function makeEmptySnapshot(): Snapshot {
         tasks: [],
       },
     ],
+  };
+}
+
+// Calendar dates use the device's local timezone, never UTC's date boundary.
+export function dayKey(date = new Date()): string {
+  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export const isTodayBoard = (board: TaskBoard) => board.title.trim().toLowerCase() === "today";
+
+export function displayBoard(snapshot: Snapshot, board: TaskBoard, day = dayKey()): TaskBoard {
+  if (!isTodayBoard(board)) return board;
+  return {
+    ...board,
+    tasks: snapshot.boards.flatMap((source) => source.tasks.filter((task) =>
+      source.id === board.id || task.plannedFor === day,
+    )).sort((left, right) =>
+      (left.plannedFor === day ? left.todayOrder ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER) -
+      (right.plannedFor === day ? right.todayOrder ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER)),
   };
 }

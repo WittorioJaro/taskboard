@@ -71,6 +71,7 @@ struct T3RunRecord: Identifiable, Codable, Equatable, Sendable {
     var updatedAt: Date
     var phase: T3RunPhase
     var threadID: String?
+    var threadLink: String?
     var errorMessage: String?
 }
 
@@ -149,6 +150,7 @@ final class T3RunMonitor {
     func attach(_ receipt: T3LaunchReceipt, to runID: UUID) {
         guard let index = runs.firstIndex(where: { $0.id == runID }) else { return }
         runs[index].threadID = receipt.threadID
+        runs[index].threadLink = receipt.link
         runs[index].phase = receipt.status.map(T3RunPhase.init(threadStatus:)) ?? .starting
         runs[index].updatedAt = .now
         persist()

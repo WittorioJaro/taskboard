@@ -214,3 +214,20 @@ button { color: inherit; }
   .lanes { animation-delay: .12s; }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 }
+
+.today-caption { margin: 0 22px 8px; font-size: 11px; color: var(--muted, #a6a9b0); }
+.task-content { flex: 1; min-width: 0; }
+.project-label { display: block; margin-bottom: 5px; font-size: 10px; font-weight: 600; letter-spacing: .03em; }
+.today-button { align-self: center; border: 0; background: transparent; color: #7e828c; padding: 8px; font-size: 18px; cursor: pointer; }
+.today-button.planned { color: var(--accent); }
+.today-button:focus-visible { outline: 2px solid var(--accent); border-radius: 6px; }
+
+.task-metadata { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; }
+.task-metadata .project-label { margin-bottom: 0; }
+.deadline-button { border: 0; background: transparent; padding: 3px 0; color: #90949e; font-size: 10px; cursor: pointer; text-align: left; }
+.deadline-button.overdue { color: #ff8c82; }
+.deadline-button.due-today { color: #f2bd69; }
+.deadline-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.deadline-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
+.deadline-editor input { min-width: 0; max-width: 100%; border: 1px solid #4b505a; border-radius: 5px; padding: 4px; background: #20232a; color: #f4f4f5; font: inherit; font-size: 12px; color-scheme: dark; }
+.deadline-editor button { border: 0; background: transparent; color: var(--accent); padding: 4px 0; font-size: 11px; cursor: pointer; }
